@@ -29,6 +29,15 @@ object TextReporter extends Reporter {
     sb.append("\n")
     sb.append("=" * 70).append("\n")
 
+    // indent a multi-line value so every continuation line aligns with the first
+    def indented(prefix: String, value: String): String = {
+      val pad = " " * prefix.length
+      value.split("\n").zipWithIndex.map {
+        case (line, 0) => prefix + line
+        case (line, _) => pad + line
+      }.mkString("\n")
+    }
+
     if (issues.isEmpty) {
       sb.append("  ✔  No issues detected.\n")
     } else {
@@ -41,8 +50,13 @@ object TextReporter extends Reporter {
         sb.append(s"\n  [$icon]  ${issue.title}\n")
         sb.append(s"           ${issue.description}\n")
         sb.append(s"        →  ${issue.recommendation}\n")
-        issue.configFix.foreach(f => sb.append(s"           config: $f\n"))
-        issue.codeFix.foreach(f   => sb.append(s"           code:   $f\n"))
+        issue.configFix.foreach(f => sb.append(indented("           config: ", f)).append("\n"))
+        issue.codeFix.foreach(f   => sb.append(indented("           code:   ", f)).append("\n"))
+        val stages = issue.affectedStages
+        val jobs   = issue.affectedJobs
+        if (stages.nonEmpty) sb.append(s"           stages: ${stages.mkString(", ")}\n")
+        if (jobs.nonEmpty)   sb.append(s"           jobs:   ${jobs.mkString(", ")}\n")
+        sb.append("\n")
       }
     }
 
