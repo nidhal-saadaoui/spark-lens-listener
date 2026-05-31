@@ -17,8 +17,9 @@ spark = (
     .config("spark.sql.adaptive.enabled", "false")
     # force SortMergeJoin (no broadcast)
     .config("spark.sql.autoBroadcastJoinThreshold", "-1")
-    # fewer shuffle partitions → higher bytes per partition → bytes-based skew signal fires
-    .config("spark.sql.shuffle.partitions", "5")
+    # 20 shuffle partitions: satisfies MinTasks=10 AND gives p50 shuffle bytes > 100 KB
+    # so the shuffle-bytes skew signal fires reliably on CI hardware (no timing dependency)
+    .config("spark.sql.shuffle.partitions", "20")
     .getOrCreate()
 )
 sc = spark.sparkContext
@@ -30,9 +31,9 @@ print("\n=== spark-lens integration test: generating skew + join + cache pattern
 # groupBy uses map-side pre-aggregation (only partial sums flow through shuffle),
 # so skew appears in the join's reduce-side shuffle read bytes instead.
 # With 5 shuffle partitions, one task reads 900K rows (~14 MB) vs ~400 KB median.
-print(">> Job 1: skewed SortMergeJoin (1M rows, 90% on key=1)")
-df_a = spark.range(1_000_000).select(
-    F.when(F.col("id") < 900_000, F.lit(1))
+print(">> Job 1: skewed SortMergeJoin (2M rows, 90% on key=1)")
+df_a = spark.range(2_000_000).select(
+    F.when(F.col("id") < 1_800_000, F.lit(1))
      .otherwise((F.col("id") % 100 + 1).cast("int"))
      .alias("key"),
     F.col("id").alias("val_a"),
