@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Test (Scala ${{ matrix.scala }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        scala: ["2.12.19", "2.13.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: sbt
+
+      - name: Run tests
+        run: sbt "++${{ matrix.scala }} test"
+
+  publish:
+    name: Publish to Maven Central
+    needs: test
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: sbt
+
+      - name: Publish
+        env:
+          PGP_PASSPHRASE:    ${{ secrets.PGP_PASSPHRASE }}
+          PGP_SECRET:        ${{ secrets.PGP_SECRET }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+        run: sbt ci-release
