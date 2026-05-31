@@ -31,7 +31,8 @@ object JsonReporter extends Reporter {
          |    "config_fix": ${i.configFix.map(f => s""""${esc(f)}"""").getOrElse("null")},
          |    "code_fix": ${i.codeFix.map(f => s""""${esc(f)}"""").getOrElse("null")},
          |    "affected_stages": [${i.affectedStages.mkString(",")}],
-         |    "affected_jobs": [${i.affectedJobs.mkString(",")}]
+         |    "affected_jobs": [${i.affectedJobs.mkString(",")}],
+         |    "metrics": {${i.metrics.map { case (k, v) => s""""${esc(k)}": "${esc(v)}"""" }.mkString(", ")}}
          |  }""".stripMargin
     }.mkString(",\n  ")
 

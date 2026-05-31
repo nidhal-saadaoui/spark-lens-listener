@@ -169,6 +169,19 @@ class ReporterSpec extends AnyFlatSpec with Matchers {
     out should include("""path\\to\\file""")
   }
 
+  it should "include the metrics object in issue output" in {
+    val i   = issue().copy(metrics = Map("p95_ratio" -> "4.2", "skew_type" -> "shuffle"))
+    val out = JsonReporter.render(baseApp, Seq(i))
+    out should include(""""metrics"""")
+    out should include(""""p95_ratio": "4.2"""")
+    out should include(""""skew_type": "shuffle"""")
+  }
+
+  it should "render an empty metrics object when no metrics" in {
+    val out = JsonReporter.render(baseApp, Seq(issue()))
+    out should include(""""metrics": {}""")
+  }
+
   it should "produce valid-looking JSON with matching braces" in {
     val out = JsonReporter.render(baseApp, Seq(issue()))
     out.count(_ == '{') shouldBe out.count(_ == '}')
