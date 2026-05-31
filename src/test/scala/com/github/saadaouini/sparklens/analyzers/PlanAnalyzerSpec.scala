@@ -30,7 +30,11 @@ class PlanAnalyzerSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "flag Window without partitionBy as Warning" in {
-    val plan = "Window [rank() windowspecdefinition(score#1 ASC)], [], [score#1 ASC]"
+    // Spark physical plan for Window.orderBy("ts") without partitionBy includes
+    // "Exchange SinglePartition" — all rows routed to one executor
+    val plan = "Window [rank() windowspecdefinition(ts#1 ASC)]\n" +
+               "+- Exchange SinglePartition, ENSURE_REQUIREMENTS\n" +
+               "   +- LocalRelation"
     val issues = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> sqlExec(plan = plan))))
     val win = issues.filter(_.id.startsWith("plan-window-nopart"))
     win should have size 1
@@ -38,7 +42,11 @@ class PlanAnalyzerSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "not flag Window that has partitionBy" in {
-    val plan = "Window partitionBy [cat#1]\n+- LocalRelation"
+    // Spark physical plan for Window.partitionBy("cat").orderBy("ts") uses
+    // hashpartitioning, not SinglePartition
+    val plan = "Window [rank() windowspecdefinition(cat#1, ts#1 ASC)]\n" +
+               "+- Exchange hashpartitioning(cat#1, 200)\n" +
+               "   +- LocalRelation"
     val issues = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> sqlExec(plan = plan))))
     issues.exists(_.id.startsWith("plan-window-nopart")) shouldBe false
   }

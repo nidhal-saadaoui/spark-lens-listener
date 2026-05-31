@@ -22,7 +22,8 @@ object PlanAnalyzer extends Analyzer {
         )
       }
 
-      if (plan.contains("Window") && !plan.contains("partitionBy")) {
+      // SinglePartition in the Exchange node means all rows are sent to one executor
+      if (plan.contains("Window") && plan.contains("SinglePartition")) {
         issues += Issue(
           id             = s"plan-window-nopart-${sql.executionId}",
           severity       = Warning,
