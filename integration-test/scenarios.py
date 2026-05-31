@@ -189,31 +189,33 @@ def run_plan_cartesian_after(spark):
 # ─── plan_window ─────────────────────────────────────────────────────────────
 
 def run_plan_window_before(spark):
-    """Window.orderBy without partitionBy → single-partition execution."""
+    """Window.orderBy without partitionBy → Exchange SinglePartition before Window.
+    Avoid filter(rn <= N) which triggers Spark's TakeOrderedAndProject rewrite that
+    hides the SinglePartition exchange.  Use a SUM aggregate instead."""
     spark.conf.set("spark.sql.adaptive.enabled", "false")
-    df = spark.range(10_000).withColumn(
+    df = spark.range(50_000).withColumn(
         "user_id", (F.col("id") % 100).cast("int")
     ).withColumn(
         "ts", F.col("id").cast("long")
-    )
-    # Window without partitionBy — all data goes to one partition
+    ).withColumn("val", F.col("id").cast("double"))
+    # Window without partitionBy — all rows routed to one executor
     w = Window.orderBy("ts")
-    result = df.withColumn("rn", F.row_number().over(w)).filter(F.col("rn") <= 5).count()
-    print(f"   plan_window-before rows: {result}")
+    result = df.withColumn("cum", F.sum("val").over(w)).agg(F.sum("cum")).collect()[0][0]
+    print(f"   plan_window-before total: {result}")
 
 
 def run_plan_window_after(spark):
     """Add partitionBy to distribute window computation."""
     spark.conf.set("spark.sql.adaptive.enabled", "false")
-    df = spark.range(10_000).withColumn(
+    df = spark.range(50_000).withColumn(
         "user_id", (F.col("id") % 100).cast("int")
     ).withColumn(
         "ts", F.col("id").cast("long")
-    )
+    ).withColumn("val", F.col("id").cast("double"))
     # Window WITH partitionBy — distributed across partitions
     w = Window.partitionBy("user_id").orderBy("ts")
-    result = df.withColumn("rn", F.row_number().over(w)).filter(F.col("rn") <= 5).count()
-    print(f"   plan_window-after rows: {result}")
+    result = df.withColumn("cum", F.sum("val").over(w)).agg(F.sum("cum")).collect()[0][0]
+    print(f"   plan_window-after total: {result}")
 
 
 # ─── driver_collect ──────────────────────────────────────────────────────────

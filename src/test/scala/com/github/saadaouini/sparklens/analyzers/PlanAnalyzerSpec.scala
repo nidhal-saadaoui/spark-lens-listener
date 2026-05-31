@@ -51,19 +51,52 @@ class PlanAnalyzerSpec extends AnyFlatSpec with Matchers {
     issues.exists(_.id.startsWith("plan-window-nopart")) shouldBe false
   }
 
-  it should "not flag Window with partitionBy when a downstream count() adds its own SinglePartition" in {
-    // count() after a partitioned window adds Exchange SinglePartition *above* the Window node.
-    // That exchange must not be mistaken for a missing PARTITION BY.
+  it should "not flag Window with partitionBy in FORMATTED plan where count's SinglePartition has higher node ID" in {
+    // Spark uses ExplainMode.FORMATTED for physicalPlanDescription.  In that format the
+    // detailed section lists nodes in ascending ID order (leaves first, root last).
+    // A partitioned window's Exchange SinglePartition (for the outer count/agg) has a HIGHER
+    // node ID than the Window node — so SinglePartition appears AFTER Window in the text.
+    // PlanAnalyzer must detect this and NOT fire.
     val plan =
-      "HashAggregate(keys=[], functions=[count(1)])\n" +
-      "+- Exchange SinglePartition, ENSURE_REQUIREMENTS\n" +          // count's exchange
-      "   +- HashAggregate(keys=[], functions=[partial_count(1)])\n" +
-      "      +- Filter (rownumber#7 <= 5)\n" +
-      "         +- Window [row_number() windowspecdefinition(user_id#1, ts#2 ASC)]\n" +
-      "            +- Exchange hashpartitioning(user_id#1, 5)\n" +   // window's partitioning
-      "               +- LocalRelation"
+      "* HashAggregate (4)\n" +
+      "+- Exchange (3)\n" +
+      "   +- * HashAggregate (2)\n" +
+      "      +- Window (1)\n" +
+      "         +- Exchange (0)\n" +
+      "\n\n" +
+      "(0) Exchange\n" +
+      "Arguments: hashpartitioning(user_id#1, 5)\n\n" +
+      "(1) Window\n" +
+      "Arguments: [rank() windowspecdefinition(user_id#1, ts#2 ASC)], [user_id#1], [ts#2 ASC]\n\n" +
+      "(2) HashAggregate\n\n" +
+      "(3) Exchange\n" +
+      "Arguments: SinglePartition, ENSURE_REQUIREMENTS\n\n" +
+      "(4) HashAggregate\n"
     val issues = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> sqlExec(plan = plan))))
     issues.exists(_.id.startsWith("plan-window-nopart")) shouldBe false
+  }
+
+  it should "flag Window without partitionBy in FORMATTED plan where SinglePartition has lower node ID" in {
+    // Without PARTITION BY the Exchange SinglePartition is the window's own exchange (a child),
+    // so it gets a lower node ID than the Window node and appears BEFORE it in the detailed section.
+    val plan =
+      "* HashAggregate (4)\n" +
+      "+- * HashAggregate (3)\n" +
+      "   +- Window (2)\n" +
+      "      +- Exchange (1)\n" +
+      "         +- * Range (0)\n" +
+      "\n\n" +
+      "(0) Range\n\n" +
+      "(1) Exchange\n" +
+      "Arguments: SinglePartition, ENSURE_REQUIREMENTS\n\n" +
+      "(2) Window\n" +
+      "Arguments: [rank() windowspecdefinition(ts#1 ASC)], [ts#1 ASC]\n\n" +
+      "(3) HashAggregate\n\n" +
+      "(4) HashAggregate\n"
+    val issues = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> sqlExec(plan = plan))))
+    val win = issues.filter(_.id.startsWith("plan-window-nopart"))
+    win should have size 1
+    win.head.severity shouldBe Warning
   }
 
   it should "flag RoundRobinPartitioning as Info" in {

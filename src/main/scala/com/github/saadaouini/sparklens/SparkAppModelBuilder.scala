@@ -164,10 +164,20 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
   }
 
   def onSqlExecutionStart(executionId: Long, description: String, physicalPlan: String, startTimeMs: Long): Unit = {
+    // physicalPlanDescription from SparkListenerSQLExecutionStart is queryExecution.toString()
+    // which includes Parsed/Analyzed/Optimized/Physical sections.  Extract only the Physical
+    // section so plan analyzers don't match logical-plan text (e.g. "Window" in logical plan
+    // combined with "SinglePartition" in physical plan produces false positives).
+    val physSection = {
+      val marker = "== Physical Plan =="
+      val idx    = physicalPlan.indexOf(marker)
+      val section = if (idx >= 0) physicalPlan.substring(idx + marker.length).trim else physicalPlan
+      section
+    }
     sqlExecutions(executionId) = SqlExecutionData(
       executionId      = executionId,
       description      = description,
-      physicalPlan     = physicalPlan,
+      physicalPlan     = physSection,
       startTimeMs      = startTimeMs,
       completionTimeMs = None,
       jobIds           = Nil,

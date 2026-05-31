@@ -22,11 +22,32 @@ object PlanAnalyzer extends Analyzer {
         )
       }
 
-      // SinglePartition *after* the Window node means all rows go to one executor.
-      // Check indexOf so we don't false-positive on a COUNT/SUM aggregation's own
-      // SinglePartition exchange that appears above (before) the Window in plan text.
-      val windowIdx = plan.indexOf("Window")
-      if (windowIdx >= 0 && plan.indexOf("SinglePartition", windowIdx) >= 0) {
+      // Detect unpartitioned window using the FORMATTED plan layout.
+      // Spark's physicalPlanDescription uses ExplainMode.FORMATTED which has two sections:
+      //   1. Tree (root→leaf): just node names and nesting
+      //   2. Detailed (leaf→root by ascending node ID): each node with Arguments
+      // An unpartitioned window's Exchange SinglePartition is a *child* of the Window node,
+      // so it has a lower node ID and appears BEFORE Window in the detailed section.
+      // A partitioned window's Exchange SinglePartition is a *parent* (outer aggregation),
+      // so it has a higher node ID and appears AFTER Window in the detailed section.
+      // For simple plan text (unit tests), fall back to indexOf ordering in the tree.
+      val windowFires: Boolean = if (plan.contains("Window")) {
+        val detailStart = plan.indexOf("\n\n(")
+        if (detailStart < 0) {
+          // Simple format: tree order matches execution order; SinglePartition after Window = child
+          val wIdx = plan.indexOf("Window")
+          wIdx >= 0 && plan.indexOf("SinglePartition", wIdx) >= 0
+        } else {
+          val detail = plan.substring(detailStart)
+          val windowInDetail = detail.indexOf(") Window\n")
+          if (windowInDetail < 0) false
+          else {
+            val spInDetail = detail.indexOf("SinglePartition")
+            spInDetail >= 0 && spInDetail < windowInDetail
+          }
+        }
+      } else false
+      if (windowFires) {
         issues += Issue(
           id             = s"plan-window-nopart-${sql.executionId}",
           severity       = Warning,
