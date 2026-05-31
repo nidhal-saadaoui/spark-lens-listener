@@ -99,21 +99,8 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
         case "html" => HtmlReporter
         case _      => TextReporter
       }
-      val ext = outputMode match {
-        case "json" => "json"
-        case "html" => "html"
-        case _      => "txt"
-      }
-      // Always write to a dedicated file — never mix the report with Spark's
-      // log stream, which may be routed by custom Log4j/Logback configurations.
-      // Default when report.path is not set: spark-lens-report.<ext> in the
-      // current working directory. Predictable, no dynamic path to discover.
-      val effectivePath = reportPath.getOrElse(s"spark-lens-report.$ext")
       try {
-        reporter.write(app, issues, Some(effectivePath))
-        // Print directly to System.out — one line, always visible regardless
-        // of logging framework configuration.
-        println(s"[spark-lens] report written to $effectivePath")
+        reporter.write(app, issues, reportPath)
       } catch {
         case ex: Exception =>
           log.log(Level.WARNING, s"spark-lens: failed to write report: ${ex.getMessage}", ex)

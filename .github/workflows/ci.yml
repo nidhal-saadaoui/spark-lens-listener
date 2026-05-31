@@ -133,18 +133,17 @@ jobs:
             --driver-class-path "${JAR}" \
             --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
             --conf spark.sparklens.output=text \
+            --conf spark.sparklens.report.path=/tmp/spark-lens-report.txt \
             --conf spark.sql.adaptive.enabled=false \
             integration-test/demo_job.py
 
       - name: Verify report content
         run: |
-          # Default report path: spark-lens-report.txt in the working directory
-          cat spark-lens-report.txt
-          grep -q "Health:" spark-lens-report.txt
-          grep -q "Excessive Shuffles" spark-lens-report.txt
-          grep -q "Repeated Scan" spark-lens-report.txt
+          cat /tmp/spark-lens-report.txt
+          grep -q "Health:" /tmp/spark-lens-report.txt
+          grep -q "Excessive Shuffles" /tmp/spark-lens-report.txt
+          grep -q "Repeated Scan" /tmp/spark-lens-report.txt
           echo "All expected issues detected in report."
-          cp spark-lens-report.txt /tmp/spark-lens-report.txt
 
       - name: Upload report
         if: always()

@@ -12,21 +12,11 @@ spark-submit \
   myJob.jar
 ```
 
-That's it. At application end the report is written to `spark-lens-report.txt` in the current working directory and a single line is printed to stdout:
-
-```
-[spark-lens] report written to spark-lens-report.txt
-```
-
-The report is always a dedicated file — never mixed with Spark's log stream, regardless of the cluster's Log4j or Logback configuration.
+That's it. At application end, a report appears in the driver stdout. To write to a dedicated file instead, set `spark.sparklens.report.path`.
 
 ## Sample report
 
-When output is enabled without an explicit `report.path`, spark-lens writes `spark-lens-report.txt` in the current working directory and prints one line to stdout:
-```
-[spark-lens] report written to spark-lens-report.txt
-```
-The file contains:
+Sample output with `output=text` and `report.path=/tmp/report.txt`:
 ```
 ======================================================================
   spark-lens  |  daily-user-aggregation  (app-20241105-0042)
