@@ -122,12 +122,14 @@ jobs:
             --driver-class-path "${JAR}" \
             --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
             --conf spark.sparklens.output=text \
+            --conf spark.sparklens.report.path=/tmp/spark-lens-report.txt \
             --conf spark.sql.adaptive.enabled=false \
-            integration-test/demo_job.py 2>&1 | tee /tmp/spark-lens-report.txt
+            integration-test/demo_job.py
 
       - name: Verify report content
         run: |
-          grep -q "Spark 3.5.5" /tmp/spark-lens-report.txt
+          cat /tmp/spark-lens-report.txt
+          grep -q "Health:" /tmp/spark-lens-report.txt
           grep -q "Skew in Stage" /tmp/spark-lens-report.txt
           grep -q "Repeated Scan" /tmp/spark-lens-report.txt
           echo "All expected issues detected in report."
