@@ -82,19 +82,21 @@ object CacheAnalyzer extends Analyzer {
       }
 
       // Estimate average bytes read per execution for a set of execution IDs.
-      // Correlates execution → jobs → stages → totalInputBytes.  Overcounts when
-      // a stage reads from multiple tables, but gives a useful order-of-magnitude guard.
+      // Correlates execution → jobs → stages → totalInputBytes.  Deduplicates by
+      // stage ID so that stages shared across multiple SQL executions (same underlying
+      // job) are not counted more than once before dividing by execIds.size.
       def estimateAvgBytesPerExec(execIds: List[Long]): Long = {
         if (execIds.isEmpty) return 0L
-        val stageBytes = for {
+        val stageInputMap = (for {
           id    <- execIds
           sql   <- app.sqlExecutions.get(id).toSeq
           jobId <- sql.jobIds
           job   <- app.jobs.get(jobId).toSeq
           sid   <- job.stageIds
           stage <- app.stages.get(sid).toSeq
-        } yield stage.totalInputBytes
-        if (stageBytes.isEmpty) 0L else stageBytes.sum / execIds.size
+        } yield (sid, stage.totalInputBytes)).toMap  // deduplicate by stage ID
+        if (stageInputMap.isEmpty) 0L
+        else stageInputMap.values.sum / execIds.size
       }
 
       tableToExecIds.toSeq.collect {

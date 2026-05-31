@@ -88,6 +88,21 @@ class SkewAnalyzerSpec extends AnyFlatSpec with Matchers {
     SkewAnalyzer.analyze(a) shouldBe empty
   }
 
+  it should "not inflate straggler count due to killed tasks with zero executorRunTimeMs" in {
+    // 9 normal tasks (1 s each) + 1 skewed task (10 s) + 2 killed tasks (0 ms executorRunTimeMs).
+    // The killed tasks should be dropped by the filter and must NOT cause the straggler count
+    // to scale up (the reservoir was not truncated — all 12 tasks fit in the sample).
+    val normal  = (0 until 9).map(i  => task(id = i,      durationMs = 1000L))
+    val skewed  = task(id = 9,  durationMs = 10000L)
+    val killed  = (10 until 12).map(i => task(id = i,     durationMs = 100L,
+                                               executorRunTimeMs = 0L))
+    val tasks = normal ++ Seq(skewed) ++ killed
+    val issues = SkewAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks))))
+    issues should not be empty
+    // Only 1 genuine straggler — killed tasks must not inflate this to 2 or 3
+    issues.head.metrics("stragglers").toInt shouldBe 1
+  }
+
   it should "respect a custom minTasks threshold" in {
     // Only 5 tasks — below default minTasks=10 but above custom minTasks=3
     val skewed = Seq(task(1000L), task(1000L), task(1000L), task(1000L), task(20000L))

@@ -24,7 +24,8 @@ object SkewAnalyzer extends Analyzer {
         // where all tasks wait equally for a slow shuffle partner looks skewed even though every
         // task does the same amount of work.  Filter out zero-valued entries (tasks killed before
         // execution started).
-        val durations = stage.tasks.map(_.metrics.executorRunTimeMs).filter(_ > 0).sorted
+        val sampleSize = stage.tasks.size  // reservoir size BEFORE filtering zero-runTime tasks
+        val durations  = stage.tasks.map(_.metrics.executorRunTimeMs).filter(_ > 0).sorted
         if (durations.size < minTasks) Nil
         else {
         val p50 = percentile(durations, 50)
@@ -59,10 +60,13 @@ object SkewAnalyzer extends Analyzer {
               else if (totalInput > 0)                            "input"
               else                                                "unknown"
 
-            // Scale straggler count from sample size to actual task count
+            // Scale straggler count only when the reservoir was actually truncated.
+            // Use sampleSize (reservoir size before filtering) rather than durations.size
+            // so that tasks killed before execution (executorRunTimeMs == 0, excluded by
+            // the filter above) don't spuriously trigger scaling.
             val sampledStragglers = durations.count(_ > p50 * p95WarnRatio)
-            val stragglers = if (stage.exactTaskCount > durations.size && durations.nonEmpty)
-              (sampledStragglers.toDouble / durations.size * taskCount).round.toInt
+            val stragglers = if (stage.exactTaskCount > sampleSize && sampleSize > 0)
+              (sampledStragglers.toDouble / sampleSize * taskCount).round.toInt
             else sampledStragglers
             val ratioFmt   = fmtDouble(durRatio, 1)
             val concPct    = fmtDouble(conc * 100, 0)

@@ -137,25 +137,49 @@ class CacheAnalyzerSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "downgrade SQL cache issue to Info for large estimated table sizes" in {
-    // Simulate large input bytes via stage correlation:
-    // SQL exec 0..4 each link to job 0, job 0 has stage 0, stage 0 has exactInputBytes = 10 GB
-    val plan = "FileScan parquet default.big_table[id#1L] ..."
-    val bigStage = stage(stageId = 0).copy(
+    // Realistic structure: each SQL execution triggers its own job and stage.
+    // Each stage reads 10 GB.  Average = (5 × 10 GB) / 5 = 10 GB > 5 GB threshold → Info.
+    val plan      = "FileScan parquet default.big_table[id#1L] ..."
+    val tenGb     = 10L * 1024L * 1024L * 1024L
+    val bigStages = (0 to 4).map(i => i -> stage(stageId = i).copy(
       hasExactAggregates = true,
-      exactInputBytes    = 10L * 1024L * 1024L * 1024L,  // 10 GB
-    )
-    val bigJob   = job(jobId = 0, stageIds = Seq(0))
-    val execs    = (0 to 4).map(i =>
-      i.toLong -> sqlExec(id = i.toLong, plan = plan, jobIds = Seq(0))
+      exactInputBytes    = tenGb,
+    )).toMap
+    val bigJobs = (0 to 4).map(i => i -> job(jobId = i, stageIds = Seq(i))).toMap
+    val execs   = (0 to 4).map(i =>
+      i.toLong -> sqlExec(id = i.toLong, plan = plan, jobIds = Seq(i))
     ).toMap
     val issues = CacheAnalyzer.analyze(app(
-      stages   = Map(0 -> bigStage),
-      jobs     = Map(0 -> bigJob),
+      stages   = bigStages,
+      jobs     = bigJobs,
       sqlExecs = execs,
     ))
     val sqlIssues = issues.filter(_.id.startsWith("cache-sql"))
     sqlIssues should have size 1
-    sqlIssues.head.severity shouldBe Info   // downgraded from Warning due to large size
+    sqlIssues.head.severity shouldBe Info   // downgraded from Warning — table too large to cache
+  }
+
+  it should "not double-count stages shared across SQL executions when estimating size" in {
+    // If multiple SQL executions share the same job+stage (edge case), the deduplication
+    // must ensure that stage's bytes are counted only once, not N times.
+    val plan  = "FileScan parquet default.shared_table[id#1L] ..."
+    val tenGb = 10L * 1024L * 1024L * 1024L
+    // All 5 executions link to the same job 0 / stage 0 — only one real scan happened.
+    val sharedStage = stage(stageId = 0).copy(hasExactAggregates = true, exactInputBytes = tenGb)
+    val sharedJob   = job(jobId = 0, stageIds = Seq(0))
+    val execs       = (0 to 4).map(i =>
+      i.toLong -> sqlExec(id = i.toLong, plan = plan, jobIds = Seq(0))
+    ).toMap
+    val issues = CacheAnalyzer.analyze(app(
+      stages   = Map(0 -> sharedStage),
+      jobs     = Map(0 -> sharedJob),
+      sqlExecs = execs,
+    ))
+    val sqlIssues = issues.filter(_.id.startsWith("cache-sql"))
+    sqlIssues should have size 1
+    // With deduplication: unique stage bytes = 10 GB; avg = 10 GB / 5 execs = 2 GB < 5 GB → Warning
+    // Without deduplication: sum = 5 × 10 GB = 50 GB; avg = 10 GB → Info (wrong — table was read once)
+    sqlIssues.head.severity shouldBe Warning
   }
 
   it should "flag the RDD name in the issue title" in {
