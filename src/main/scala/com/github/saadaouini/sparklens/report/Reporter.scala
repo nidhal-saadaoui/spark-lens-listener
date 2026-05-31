@@ -9,12 +9,12 @@ trait Reporter {
   def write(app: SparkAppModel, issues: Seq[Issue], path: Option[String]): Unit
 
   protected def healthScore(issues: Seq[Issue]): Int = {
-    val deduct = issues.map(_.severity.order match {
-      case 0 => 25
-      case 1 => 10
-      case _ => 3
-    }).sum
-    math.max(0, 100 - deduct)
+    // Each severity category has a per-category cap so that a flood of config warnings
+    // (which fire on nearly every job) doesn't kill the score the way real criticals do.
+    val critDeduct = math.min(issues.count(_.severity.order == 0) * 25, 100)
+    val warnDeduct = math.min(issues.count(_.severity.order == 1) * 10,  30)
+    val infoDeduct = math.min(issues.count(_.severity.order == 2) * 3,   15)
+    math.max(0, 100 - critDeduct - warnDeduct - infoDeduct)
   }
 
   protected def writeOrPrint(content: String, path: Option[String]): Unit =

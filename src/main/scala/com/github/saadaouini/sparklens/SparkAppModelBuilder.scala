@@ -15,15 +15,18 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
 
   private val sparkProperties = mutable.Map[String, String]()
   private val jobs            = mutable.Map[Int, JobData]()
-  private val stages          = mutable.Map[Int, mutable.ArrayBuffer[TaskData]]()
-  private val stageInfo       = mutable.Map[Int, StageData]()
   private val executors       = mutable.Map[String, ExecutorData]()
   private val sqlExecutions   = mutable.Map[Long, SqlExecutionData]()
 
+  // Internal stage tracking keyed by (stageId, attemptId) to keep attempts isolated.
+  // At build() time we collapse to the latest attempt per stageId.
+  private val stageTasks         = mutable.Map[(Int, Int), mutable.ArrayBuffer[TaskData]]()
+  private val stageInfo          = mutable.Map[(Int, Int), StageData]()
+  private val stageRddNames      = mutable.Map[(Int, Int), Seq[String]]()
+  private val stageRddCachedNames= mutable.Map[(Int, Int), Set[String]]()
+
   // track which stages belong to which job (for cache analyzer)
   private val jobStageMap = mutable.Map[Int, Seq[Int]]()
-  // track RDD names per stage (for cache analyzer)
-  private val stageRddNames = mutable.Map[Int, Seq[String]]()
 
   def onApplicationStart(e: SparkListenerApplicationStart): Unit = {
     appId       = e.appId.getOrElse("unknown")
@@ -73,7 +76,9 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
     val name = sqlExecutions.values
       .find(_.jobIds.contains(e.jobId))
       .map(_.description)
-      .orElse(jobStageMap.get(e.jobId).flatMap(_.headOption).flatMap(stageInfo.get).map(_.name))
+      .orElse(jobStageMap.get(e.jobId)
+        .flatMap(_.headOption)
+        .flatMap(sid => stageInfo.find(_._1._1 == sid).map(_._2.name)))
       .getOrElse(s"Job ${e.jobId}")
 
     jobs(e.jobId) = JobData(
@@ -87,19 +92,23 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
   }
 
   def onStageSubmitted(e: SparkListenerStageSubmitted): Unit = {
-    val info = e.stageInfo
-    val rddNames = info.rddInfos.map(_.name).filter(_.nonEmpty)
-    stageRddNames(info.stageId) = rddNames
-    stageInfo(info.stageId) = StageData(
+    val info    = e.stageInfo
+    val key     = (info.stageId, info.attemptNumber())
+    val rddNames       = info.rddInfos.map(_.name).filter(_.nonEmpty)
+    val rddCachedNames = info.rddInfos.filter(_.isCached).map(_.name).toSet
+    stageRddNames(key)       = rddNames
+    stageRddCachedNames(key) = rddCachedNames
+    stageInfo(key) = StageData(
       stageId          = info.stageId,
       attemptId        = info.attemptNumber(),
       name             = info.name,
       numTasks         = info.numTasks,
       submissionTimeMs = info.submissionTime,
       rddNames         = rddNames,
+      rddCachedNames   = rddCachedNames,
       details          = info.details,
     )
-    stages.getOrElseUpdate(info.stageId, mutable.ArrayBuffer.empty)
+    stageTasks.getOrElseUpdate(key, mutable.ArrayBuffer.empty)
   }
 
   def onTaskEnd(e: SparkListenerTaskEnd): Unit = {
@@ -111,7 +120,6 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
     val inp     = metrics.inputMetrics
     val out     = metrics.outputMetrics
 
-    // Error message comes from the task end reason, not TaskInfo
     val errorMessage: Option[String] =
       if (info.failed) Some(e.reason.toString.take(300))
       else None
@@ -143,13 +151,15 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
         resultSize             = metrics.resultSize,
       ),
     )
-    stages.getOrElseUpdate(e.stageId, mutable.ArrayBuffer.empty) += task
+    // Key by (stageId, stageAttemptId) so tasks from retried attempts don't mix
+    stageTasks.getOrElseUpdate((e.stageId, e.stageAttemptId), mutable.ArrayBuffer.empty) += task
   }
 
   def onStageCompleted(e: SparkListenerStageCompleted): Unit = {
     val info  = e.stageInfo
-    val tasks = stages.getOrElse(info.stageId, mutable.ArrayBuffer.empty).toSeq
-    stageInfo(info.stageId) = StageData(
+    val key   = (info.stageId, info.attemptNumber())
+    val tasks = stageTasks.getOrElse(key, mutable.ArrayBuffer.empty).toSeq
+    stageInfo(key) = StageData(
       stageId          = info.stageId,
       attemptId        = info.attemptNumber(),
       name             = info.name,
@@ -158,7 +168,8 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
       submissionTimeMs = info.submissionTime,
       completionTimeMs = info.completionTime,
       failureReason    = info.failureReason.filter(_.nonEmpty),
-      rddNames         = stageRddNames.getOrElse(info.stageId, Nil),
+      rddNames         = stageRddNames.getOrElse(key, Nil),
+      rddCachedNames   = stageRddCachedNames.getOrElse(key, Set.empty),
       details          = info.details,
     )
   }
@@ -196,16 +207,23 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
     }
   }
 
-  def build(endTimeMs: Long): SparkAppModel = SparkAppModel(
-    appId           = appId,
-    appName         = appName,
-    sparkVersion    = sparkVersion,
-    startTimeMs     = startTimeMs,
-    endTimeMs       = Some(endTimeMs),
-    sparkProperties = sparkProperties.toMap,
-    jobs            = jobs.toMap,
-    stages          = stageInfo.toMap,
-    executors       = executors.toMap,
-    sqlExecutions   = sqlExecutions.toMap,
-  )
+  def build(endTimeMs: Long): SparkAppModel = {
+    // Collapse multiple attempts per stage: keep only the latest attempt
+    val latestStages: Map[Int, StageData] = stageInfo.toMap
+      .groupBy(_._1._1)
+      .map { case (stageId, entries) => stageId -> entries.maxBy(_._1._2)._2 }
+
+    SparkAppModel(
+      appId           = appId,
+      appName         = appName,
+      sparkVersion    = sparkVersion,
+      startTimeMs     = startTimeMs,
+      endTimeMs       = Some(endTimeMs),
+      sparkProperties = sparkProperties.toMap,
+      jobs            = jobs.toMap,
+      stages          = latestStages,
+      executors       = executors.toMap,
+      sqlExecutions   = sqlExecutions.toMap,
+    )
+  }
 }

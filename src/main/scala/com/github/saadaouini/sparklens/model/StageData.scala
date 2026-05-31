@@ -10,6 +10,7 @@ case class StageData(
   completionTimeMs:  Option[Long]   = None,
   failureReason:     Option[String] = None,
   rddNames:          Seq[String]    = Nil,
+  rddCachedNames:    Set[String]    = Set.empty,
   details:           String         = "",
 ) {
   def durationMs: Long = (submissionTimeMs, completionTimeMs) match {

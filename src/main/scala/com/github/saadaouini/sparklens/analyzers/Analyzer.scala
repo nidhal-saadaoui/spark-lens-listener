@@ -12,6 +12,25 @@ trait Analyzer {
   protected def median(sorted: Seq[Long]): Long =
     if (sorted.isEmpty) 0L else sorted(sorted.size / 2)
 
+  // Linear-interpolated percentile on a pre-sorted sequence
+  protected def percentile(sorted: Seq[Long], p: Double): Long = {
+    if (sorted.isEmpty) return 0L
+    val idx  = (sorted.size - 1).toDouble * p / 100.0
+    val lo   = idx.toInt
+    val hi   = math.min(lo + 1, sorted.size - 1)
+    val frac = idx - lo
+    (sorted(lo) * (1.0 - frac) + sorted(hi) * frac).toLong
+  }
+
+  // Fraction of total held by the top `topFrac` items (sorted ascending)
+  protected def concentration(sorted: Seq[Long], topFrac: Double = 0.05): Double = {
+    val total = sorted.sum.toDouble
+    if (total == 0.0) return 0.0
+    val nTop   = math.max(1, (sorted.size * topFrac).toInt)
+    val topSum = sorted.takeRight(nTop).sum.toDouble
+    topSum / total
+  }
+
   // Locale.ROOT ensures dot as decimal separator regardless of JVM locale
   protected def fmtDouble(value: Double, decimals: Int): String =
     String.format(Locale.ROOT, s"%.${decimals}f", value: java.lang.Double)

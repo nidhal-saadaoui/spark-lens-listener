@@ -28,8 +28,12 @@ object CacheAnalyzer extends Analyzer {
       rddToJobs(rddName) = rddToJobs.getOrElse(rddName, Set.empty) + jobId
     }
 
+    // Collect all RDD names that have caching configured across all stages — if the
+    // user already called .cache()/.persist(), isCached is true and we suppress the issue.
+    val cachedRddNames: Set[String] = app.stages.values.flatMap(_.rddCachedNames).toSet
+
     rddToJobs.toSeq.collect {
-      case (rddName, jobs) if jobs.size >= 2 =>
+      case (rddName, jobs) if jobs.size >= 2 && !cachedRddNames.contains(rddName) =>
         val sortedJobs = jobs.toSeq.sorted
         val jobNames   = sortedJobs.flatMap(id => app.jobs.get(id).map(j => s"'${j.name.take(60)}'"))
                                    .take(3).mkString(", ")

@@ -42,7 +42,7 @@ object StageFailureAnalyzer extends Analyzer {
             id             = s"task-failure-${stage.stageId}",
             severity       = Warning,
             category       = "reliability",
-            title          = s"High Task Failure Rate in Stage ${stage.stageId} — ${f"${failedRate * 100}%.0f"}%",
+            title          = s"High Task Failure Rate in Stage ${stage.stageId} — ${fmtDouble(failedRate * 100, 0)}%",
             description    = s"$failed of ${stage.tasks.size} tasks failed in stage ${stage.stageId} (${stage.name}). Sample error: $sample",
             recommendation = "Check executor logs for OOM, network errors, or application-level exceptions. Increase spark.task.maxFailures if transient failures are expected.",
             affectedStages = Seq(stage.stageId),

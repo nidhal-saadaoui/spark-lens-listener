@@ -75,6 +75,18 @@ class CacheAnalyzerSpec extends AnyFlatSpec with Matchers {
     )) shouldBe empty
   }
 
+  it should "not flag an RDD that is already cached" in {
+    // rddCachedNames populated because user called .cache() — suppress the issue
+    val s0 = stage(stageId = 0, rddNames = Seq("events"), rddCachedNames = Set("events"))
+    val s1 = stage(stageId = 1, rddNames = Seq("events"), rddCachedNames = Set("events"))
+    val j0 = job(jobId = 0, stageIds = Seq(0))
+    val j1 = job(jobId = 1, stageIds = Seq(1))
+    CacheAnalyzer.analyze(app(
+      stages = Map(0 -> s0, 1 -> s1),
+      jobs   = Map(0 -> j0, 1 -> j1),
+    )) shouldBe empty
+  }
+
   it should "flag the RDD name in the issue title" in {
     val s0 = stage(stageId = 0, rddNames = Seq("clickstream"))
     val s1 = stage(stageId = 1, rddNames = Seq("clickstream"))

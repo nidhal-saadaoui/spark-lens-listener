@@ -12,28 +12,57 @@ class SkewAnalyzerSpec extends AnyFlatSpec with Matchers {
     SkewAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks)))) shouldBe empty
   }
 
-  it should "return no issues when fewer than 5 tasks" in {
+  it should "return no issues when fewer than MinTasks" in {
     val tasks = Seq(task(1000L), task(10000L), task(1000L))
     SkewAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks)))) shouldBe empty
   }
 
-  it should "return no issues when median is below 1 second" in {
+  it should "return no issues when p50 is below the minimum duration threshold" in {
+    // p50 = 100ms < MinP50Ms — stage is too fast to care about skew
     val tasks = (1 to 10).map(_ => task(durationMs = 100L)) :+ task(durationMs = 900L)
     SkewAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks)))) shouldBe empty
   }
 
-  it should "detect warning skew at ratio >= 3x" in {
+  it should "detect warning skew via concentration signal" in {
+    // 1 task is 4× the rest — concentration of top 5% exceeds ConcWarn threshold
     val tasks = (1 to 9).map(_ => task(durationMs = 1000L)) :+ task(durationMs = 4000L)
     val issues = SkewAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks))))
     issues should have size 1
     issues.head.severity shouldBe Warning
   }
 
-  it should "detect critical skew at ratio >= 8x" in {
+  it should "detect critical skew via concentration signal" in {
+    // 1 task holds >50% of total stage time → concCrit fires
     val tasks = (1 to 9).map(_ => task(durationMs = 1000L)) :+ task(durationMs = 10000L)
     val issues = SkewAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks))))
     issues should have size 1
     issues.head.severity shouldBe Critical
+  }
+
+  it should "detect critical skew via p95/p50 ratio" in {
+    // Multiple slow tasks so p95 itself is skewed, not just the single max
+    val tasks = (1 to 8).map(_ => task(durationMs = 1000L)) ++ Seq(task(10000L), task(10000L))
+    val issues = SkewAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks))))
+    issues should have size 1
+    issues.head.severity shouldBe Critical
+    issues.head.metrics("p95_ratio").toDouble should be >= 8.0
+  }
+
+  it should "detect skew via shuffle read bytes and classify as shuffle type" in {
+    // Uniform task durations but one task reads 30× more shuffle data → hot-key partition
+    val normal = (0 until 9).map(_ => task(durationMs = 1000L, remoteShuffleBytes = 1 * MB))
+    val hot    = task(durationMs = 1200L, remoteShuffleBytes = 30 * MB)
+    val issues = SkewAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = normal :+ hot))))
+    issues should not be empty
+    issues.head.metrics("skew_type") shouldBe "shuffle"
+  }
+
+  it should "classify skew as input type when tasks read mostly from files" in {
+    val normal = (0 until 9).map(_ => task(durationMs = 1000L, inputBytes = 10 * MB))
+    val large  = task(durationMs = 5000L, inputBytes = 300 * MB)
+    val issues = SkewAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = normal :+ large))))
+    issues should not be empty
+    issues.head.metrics("skew_type") shouldBe "input"
   }
 
   it should "detect skew in multiple stages independently" in {

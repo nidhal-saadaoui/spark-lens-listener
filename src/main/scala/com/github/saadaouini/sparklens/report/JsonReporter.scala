@@ -9,7 +9,17 @@ object JsonReporter extends Reporter {
 
   def render(app: SparkAppModel, issues: Seq[Issue]): String = {
     val score  = healthScore(issues)
-    val esc    = (s: String) => s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+    val esc = (s: String) => s.flatMap {
+      case '"'  => "\\\""
+      case '\\' => "\\\\"
+      case '\n' => "\\n"
+      case '\r' => "\\r"
+      case '\t' => "\\t"
+      case '\b' => "\\b"
+      case '\f' => "\\f"
+      case c if c.toInt < 0x20 => f"\\u${c.toInt}%04x"
+      case c    => c.toString
+    }
     val issueJson = issues.map { i =>
       s"""{
          |    "id": "${esc(i.id)}",

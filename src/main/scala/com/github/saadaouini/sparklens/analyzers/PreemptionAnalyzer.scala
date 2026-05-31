@@ -38,7 +38,7 @@ object PreemptionAnalyzer extends Analyzer {
             id             = s"preemption-killed-${stage.stageId}",
             severity       = Warning,
             category       = "preemption",
-            title          = s"High Task Kill Rate in Stage ${stage.stageId} — ${f"${killedRate * 100}%.0f"}%",
+            title          = s"High Task Kill Rate in Stage ${stage.stageId} — ${fmtDouble(killedRate * 100, 0)}%",
             description    = s"$killed of ${stage.tasks.size} tasks were killed in stage ${stage.stageId} (${stage.name}). Indicates resource contention or speculation killing slow tasks.",
             recommendation = "Disable speculation (spark.speculation=false) if tasks are killed by speculative execution. Otherwise investigate cluster resource pressure.",
             affectedStages = Seq(stage.stageId),

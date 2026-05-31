@@ -53,14 +53,15 @@ object AnalyzerFixtures {
   )
 
   def stage(
-    stageId:    Int           = 0,
-    tasks:      Seq[TaskData] = Nil,
-    attemptId:  Int           = 0,
-    name:       String        = "test-stage",
-    rddNames:   Seq[String]   = Nil,
-    failReason: Option[String] = None,
-    submitMs:   Option[Long]  = Some(0L),
-    completeMs: Option[Long]  = Some(60000L),
+    stageId:        Int           = 0,
+    tasks:          Seq[TaskData] = Nil,
+    attemptId:      Int           = 0,
+    name:           String        = "test-stage",
+    rddNames:       Seq[String]   = Nil,
+    rddCachedNames: Set[String]   = Set.empty,
+    failReason:     Option[String] = None,
+    submitMs:       Option[Long]  = Some(0L),
+    completeMs:     Option[Long]  = Some(60000L),
   ): StageData = StageData(
     stageId          = stageId,
     attemptId        = attemptId,
@@ -71,6 +72,7 @@ object AnalyzerFixtures {
     completionTimeMs = completeMs,
     failureReason    = failReason,
     rddNames         = rddNames,
+    rddCachedNames   = rddCachedNames,
   )
 
   def job(

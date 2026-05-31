@@ -32,8 +32,8 @@ object ConfigAnalyzer extends Analyzer {
         severity       = Warning,
         category       = "config",
         title          = "Java Serializer in Use — Switch to Kryo",
-        description    = "Java serialization is 10× slower than Kryo and produces 2–10× larger byte arrays. Every shuffle write, broadcast variable, and RDD persist pays this cost — it shows up as longer task duration and higher GC pressure.",
-        recommendation = "Switch to Kryo. Register your domain classes for maximum performance (unregistered classes fall back to class name string which wastes space).",
+        description    = "Java serialization is 10× slower than Kryo and produces 2–10× larger byte arrays. Every JVM shuffle write, broadcast variable, and RDD persist pays this cost. Note: Python closures in PySpark are always serialized by cloudpickle regardless of this setting — the benefit applies to JVM-side objects (Scala/Java RDDs, broadcast variables, accumulators).",
+        recommendation = "Switch to Kryo for JVM workloads. Register your domain classes for maximum performance (unregistered classes fall back to class-name strings which waste space). For pure PySpark jobs this is a minor improvement; focus on Arrow/pandas UDFs to reduce Python serialization overhead instead.",
         codeFix        = Some("spark.conf.set(\"spark.serializer\", \"org.apache.spark.serializer.KryoSerializer\")\n// optionally: spark.conf.set(\"spark.kryo.registrationRequired\", \"false\")"),
         configFix      = Some("spark.serializer=org.apache.spark.serializer.KryoSerializer"),
       )
