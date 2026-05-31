@@ -2,44 +2,140 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ["main"]
   pull_request:
+    branches: ["main"]
 
 jobs:
+  # ── Unit tests — both Scala versions × both Java versions ─────────────────
   test:
-    name: Test (Scala ${{ matrix.scala }})
+    name: Test (Scala ${{ matrix.scala }}, Java ${{ matrix.java }})
     runs-on: ubuntu-latest
+
     strategy:
+      fail-fast: false
       matrix:
-        scala: ["2.12.19", "2.13.14"]
+        scala: ["2.13.15", "2.12.20"]
+        java: ["11", "17"]
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
         with:
+          fetch-depth: 0  # dynver needs full tag history
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
           distribution: temurin
-          java-version: 17
           cache: sbt
+
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
 
       - name: Run tests
-        run: sbt "++${{ matrix.scala }} test"
+        env:
+          JAVA_OPTS: >-
+            --add-opens=java.base/javax.security.auth=ALL-UNNAMED
+            --add-opens=java.base/java.lang=ALL-UNNAMED
+            --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+            --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+            --add-opens=java.base/java.io=ALL-UNNAMED
+            --add-opens=java.base/java.net=ALL-UNNAMED
+            --add-opens=java.base/java.nio=ALL-UNNAMED
+            --add-opens=java.base/java.util=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+            --add-opens=java.base/sun.nio.ch=ALL-UNNAMED
+            --add-opens=java.base/sun.nio.cs=ALL-UNNAMED
+            --add-opens=java.base/sun.security.action=ALL-UNNAMED
+            --add-opens=java.base/sun.util.calendar=ALL-UNNAMED
+            --add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED
+        run: sbt ++${{ matrix.scala }} test
 
-  publish:
-    name: Publish to Maven Central
-    needs: test
+  # ── Build fat JAR (Scala 2.12 — matches default Spark binary version) ─────
+  assembly:
+    name: Assembly JAR
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
         with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
           distribution: temurin
-          java-version: 17
           cache: sbt
 
-      - name: Publish
-        env:
-          PGP_PASSPHRASE:    ${{ secrets.PGP_PASSPHRASE }}
-          PGP_SECRET:        ${{ secrets.PGP_SECRET }}
-          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
-          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
-        run: sbt ci-release
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Build fat JAR
+        run: sbt "++2.12.20 assembly"
+
+      - name: Upload assembly JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: spark-lens-assembly
+          path: target/scala-2.12/spark-lens_2.12-*-assembly.jar
+          retention-days: 7
+
+  # ── End-to-end integration test: demo job via PySpark ─────────────────────
+  integration-test:
+    name: Integration Test (Spark 3.5.5)
+    runs-on: ubuntu-latest
+    needs: assembly
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PySpark
+        run: pip install pyspark==3.5.5
+
+      - name: Download assembly JAR
+        uses: actions/download-artifact@v4
+        with:
+          name: spark-lens-assembly
+          path: target/scala-2.12/
+
+      - name: Run demo job
+        run: |
+          SPARK_HOME=$(python -c "import pyspark; print(pyspark.__path__[0])")
+          JAR=$(ls target/scala-2.12/spark-lens_2.12-*-assembly.jar | head -1)
+          ${SPARK_HOME}/bin/spark-submit \
+            --master "local[2]" \
+            --driver-class-path "${JAR}" \
+            --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
+            --conf spark.sparklens.output=text \
+            --conf spark.sql.adaptive.enabled=false \
+            integration-test/demo_job.py 2>&1 | tee /tmp/spark-lens-report.txt
+
+      - name: Verify report content
+        run: |
+          grep -q "Spark 3.5.5" /tmp/spark-lens-report.txt
+          grep -q "Severe Task Skew" /tmp/spark-lens-report.txt
+          grep -q "Repeated Scan" /tmp/spark-lens-report.txt
+          echo "All expected issues detected in report."
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spark-lens-report
+          path: /tmp/spark-lens-report.txt
+          retention-days: 7

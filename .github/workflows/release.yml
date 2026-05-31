@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+jobs:
+  # ── Run tests in parallel for both Scala versions ─────────────────────────
+  test:
+    name: Test (Scala ${{ matrix.scala }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        scala: ["2.13.15", "2.12.20"]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # dynver needs full tag history
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: sbt
+
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Run tests
+        env:
+          JAVA_OPTS: >-
+            --add-opens=java.base/javax.security.auth=ALL-UNNAMED
+            --add-opens=java.base/java.lang=ALL-UNNAMED
+            --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+            --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+            --add-opens=java.base/java.io=ALL-UNNAMED
+            --add-opens=java.base/java.net=ALL-UNNAMED
+            --add-opens=java.base/java.nio=ALL-UNNAMED
+            --add-opens=java.base/java.util=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+            --add-opens=java.base/sun.nio.ch=ALL-UNNAMED
+            --add-opens=java.base/sun.nio.cs=ALL-UNNAMED
+            --add-opens=java.base/sun.security.action=ALL-UNNAMED
+            --add-opens=java.base/sun.util.calendar=ALL-UNNAMED
+            --add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED
+        run: sbt ++${{ matrix.scala }} test
+
+  # ── Publish to Maven Central + create GitHub Release ──────────────────────
+  publish:
+    name: Publish & Release
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # dynver needs full tag history
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: sbt
+
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Import GPG signing key
+        run: echo "$PGP_SECRET" | base64 --decode | gpg --import --batch
+        env:
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+
+      # +publishSigned cross-publishes for all versions in crossScalaVersions,
+      # then sonatypeBundleRelease uploads and releases the bundle in one shot.
+      - name: Publish to Maven Central
+        run: sbt +publishSigned sonatypeBundleRelease
+        env:
+          PGP_PASSPHRASE:    ${{ secrets.PGP_PASSPHRASE }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+
+      - name: Build assembly JARs (both Scala versions)
+        run: sbt +assembly
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "spark-lens ${{ github.ref_name }}" \
+            --generate-notes \
+            target/scala-2.13/spark-lens_2.13-*-assembly.jar \
+            target/scala-2.12/spark-lens_2.12-*-assembly.jar

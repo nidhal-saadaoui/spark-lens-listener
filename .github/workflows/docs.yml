@@ -1,0 +1,48 @@
+name: Docs
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  scaladoc:
+    name: Scaladoc → GitHub Pages
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # dynver needs full tag history for version string
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: sbt
+
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Generate Scaladoc (Scala 2.13)
+        env:
+          JAVA_OPTS: >-
+            --add-opens=java.base/java.lang=ALL-UNNAMED
+            --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+        run: sbt "++2.13.15 doc"
+
+      - name: Publish to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: target/scala-2.13/api
+          publish_branch: gh-pages
+          force_orphan: true
+          enable_jekyll: false
+          user_name: "github-actions[bot]"
+          user_email: "github-actions[bot]@users.noreply.github.com"
+          commit_message: "docs: regenerate Scaladoc"
