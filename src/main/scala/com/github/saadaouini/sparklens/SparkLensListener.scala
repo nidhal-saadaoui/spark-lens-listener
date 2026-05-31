@@ -99,8 +99,19 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
         case "html" => HtmlReporter
         case _      => TextReporter
       }
+      val ext = outputMode match {
+        case "json" => "json"
+        case "html" => "html"
+        case _      => "txt"
+      }
+      // Always write to a dedicated file so the report is never mixed with
+      // Spark log output regardless of the cluster's logging configuration.
+      // Default: spark-lens-<appId>.<ext> in the JVM's temp directory.
+      val tmpDir = System.getProperty("java.io.tmpdir", "/tmp")
+      val effectivePath = reportPath.getOrElse(s"$tmpDir/spark-lens-${app.appId}.$ext")
       try {
-        reporter.write(app, issues, reportPath)
+        reporter.write(app, issues, Some(effectivePath))
+        log.log(Level.INFO, s"spark-lens: report written to $effectivePath")
       } catch {
         case ex: Exception =>
           log.log(Level.WARNING, s"spark-lens: failed to write report: ${ex.getMessage}", ex)

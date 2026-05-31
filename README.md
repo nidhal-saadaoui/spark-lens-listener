@@ -12,10 +12,15 @@ spark-submit \
   myJob.jar
 ```
 
-That's it. At application end, a report appears in the driver logs.
+That's it. At application end the report is written to a dedicated file in the JVM temp directory (e.g. `/tmp/spark-lens-app-20241105-0042.txt`) and the path is logged at INFO level. The report is never mixed with Spark's log output.
 
 ## Sample report
 
+When output is enabled without an explicit `report.path`, spark-lens logs:
+```
+INFO SparkLensListener: spark-lens: report written to /tmp/spark-lens-app-20241105-0042.txt
+```
+The file contains:
 ```
 ======================================================================
   spark-lens  |  daily-user-aggregation  (app-20241105-0042)
