@@ -44,9 +44,9 @@ class ReporterSpec extends AnyFlatSpec with Matchers {
     TextReporter.renderString(baseApp, Nil) should include("100/100")
   }
 
-  it should "deduct 25 for each Critical issue" in {
+  it should "deduct 30 for each Critical issue" in {
     val out = TextReporter.renderString(baseApp, Seq(issue(severity = Critical)))
-    out should include("75/100")
+    out should include("70/100")
   }
 
   it should "deduct 10 for each Warning issue" in {
@@ -54,9 +54,19 @@ class ReporterSpec extends AnyFlatSpec with Matchers {
     out should include("90/100")
   }
 
-  it should "deduct 3 for each Info issue" in {
+  it should "deduct 2 for each Info issue" in {
     val out = TextReporter.renderString(baseApp, Seq(issue(severity = Info)))
-    out should include("97/100")
+    out should include("98/100")
+  }
+
+  it should "score a single Critical worse than three Warnings" in {
+    // 1 critical: -30 → 70/100
+    val critOut = TextReporter.renderString(baseApp, Seq(issue(severity = Critical)))
+    critOut should include("70/100")
+    // 3 warnings: 3×10=30 but capped at -25 → 75/100
+    val warnOut = TextReporter.renderString(baseApp,
+      (1 to 3).map(i => issue(id = s"w-$i", severity = Warning)))
+    warnOut should include("75/100")
   }
 
   it should "floor the health score at 0" in {
@@ -232,7 +242,7 @@ class ReporterSpec extends AnyFlatSpec with Matchers {
 
   it should "show health score in the score card" in {
     val out = HtmlReporter.render(baseApp, Seq(issue(severity = Critical)))
-    out should include("75")
+    out should include("70")   // 1 critical = −30 → 70/100
   }
 
   it should "not include any external http resources in the style block" in {

@@ -64,5 +64,24 @@ count1 = rdd.count()                        # job 3a — scans user_events
 count2 = rdd.reduce(lambda a, b: a + b)    # job 3b — re-scans user_events
 print(f"   count={count1}  sum={count2}")
 
+# ── 4. Window without PARTITION BY → PlanAnalyzer fires ─────────────────────
+# AQE disabled so the Exchange SinglePartition stays visible in the physical plan.
+print(">> Job 4: Window.orderBy() without partitionBy (all data to one partition)")
+from pyspark.sql.window import Window as W
+spark.conf.set("spark.sql.adaptive.enabled", "false")
+df_w = (spark.range(5_000)
+        .withColumn("ts", F.col("id").cast("long"))
+        .withColumn("v",  F.col("id").cast("double")))
+win  = W.orderBy("ts")                       # no partitionBy → SinglePartition exchange
+df_w.withColumn("cum", F.sum("v").over(win)).agg(F.sum("cum")).collect()
+print("   window job done")
+
+# ── 5. Cartesian product → PlanAnalyzer Critical ─────────────────────────────
+print(">> Job 5: crossJoin() — CartesianProduct in physical plan")
+df1 = spark.range(200).withColumn("id", F.col("id").cast("int"))
+df2 = spark.range(100).withColumn("id", F.col("id").cast("int")).withColumn("v", F.rand(seed=1))
+df1.crossJoin(df2).count()
+print("   cartesian job done")
+
 print("\n=== jobs complete — spark-lens report follows ===\n")
 spark.stop()

@@ -41,8 +41,12 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
-  override def onApplicationStart(e: SparkListenerApplicationStart): Unit =
+  override def onApplicationStart(e: SparkListenerApplicationStart): Unit = {
     builder.onApplicationStart(e)
+    val pathInfo = reportPath.map(p => s", path=$p").getOrElse("")
+    val failInfo = failOn.map(f => s", fail.on=$f").getOrElse("")
+    log.info(s"spark-lens attached (output=$outputMode$pathInfo$failInfo)")
+  }
 
   override def onEnvironmentUpdate(e: SparkListenerEnvironmentUpdate): Unit =
     builder.onEnvironmentUpdate(e)
@@ -112,9 +116,13 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
       if (threshold >= 0) {
         val blocking = issues.filter(_.severity.order <= threshold)
         if (blocking.nonEmpty) {
-          val summary = TextReporter.renderString(app, issues)
+          val lines = blocking.take(5)
+            .map(i => s"  [${i.severity.toString.toUpperCase}] ${i.title}")
+            .mkString("\n")
+          val tail = if (blocking.size > 5) s"\n  ... and ${blocking.size - 5} more" else ""
           throw new RuntimeException(
-            s"spark-lens: found ${blocking.size} issue(s) at '$severity' or above.\n$summary"
+            s"spark-lens: ${blocking.size} issue(s) at '$severity' severity or above:\n" +
+            s"$lines$tail\nSet spark.sparklens.output=text to see the full report."
           )
         }
       }

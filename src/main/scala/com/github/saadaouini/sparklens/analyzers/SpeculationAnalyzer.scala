@@ -8,8 +8,10 @@ object SpeculationAnalyzer extends Analyzer {
     val speculationEnabled = app.propOrDefault("spark.speculation", "false").toLowerCase == "true"
     val issues = scala.collection.mutable.ArrayBuffer[Issue]()
 
-    // Count speculative tasks that actually ran
-    val speculativeTasks = app.stages.values.flatMap(_.tasks).count(_.speculative)
+    // Count speculative tasks — use exact aggregates when available
+    val speculativeTasks = app.stages.values.map { s =>
+      if (s.hasExactAggregates) s.exactSpeculativeCount else s.tasks.count(_.speculative)
+    }.sum
 
     if (speculationEnabled && speculativeTasks > 0) {
       issues += Issue(

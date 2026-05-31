@@ -28,6 +28,36 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
   // track which stages belong to which job (for cache analyzer)
   private val jobStageMap = mutable.Map[Int, Seq[Int]]()
 
+  // ── Exact aggregate tracking ───────────────────────────────────────────────
+  // Stores precise totals for every task that arrived, regardless of whether the
+  // task was admitted to the reservoir sample in stageTasks.
+  private val stageExactTaskCount = mutable.Map[(Int, Int), Int]()
+  private val stageAgg            = mutable.Map[(Int, Int), StageSummary]()
+
+  // Maximum task objects kept in memory per stage (reservoir sample).
+  // Percentile/distribution analysis uses the sample; totals come from StageSummary.
+  private val MaxSampledTasksPerStage = 10000
+
+  private class StageSummary {
+    var taskCount:               Int  = 0
+    var failedCount:             Int  = 0
+    var killedCount:             Int  = 0
+    var speculativeCount:        Int  = 0
+    var tasksWithInputBytes:     Int  = 0
+    var tasksWithOutputBytes:    Int  = 0
+    var totalExecutorRunTimeMs:  Long = 0L
+    var totalExecutorCpuTimeNs:  Long = 0L
+    var totalGcTimeMs:           Long = 0L
+    var totalInputBytes:         Long = 0L
+    var totalOutputBytes:        Long = 0L
+    var totalResultSize:         Long = 0L
+    var totalDiskSpillBytes:     Long = 0L
+    var totalMemorySpillBytes:   Long = 0L
+    var totalShuffleRemoteBytes: Long = 0L
+    var totalShuffleLocalBytes:  Long = 0L
+    var totalShuffleBytesWritten:Long = 0L
+  }
+
   def onApplicationStart(e: SparkListenerApplicationStart): Unit = {
     appId       = e.appId.getOrElse("unknown")
     appName     = e.appName
@@ -151,20 +181,56 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
         resultSize             = metrics.resultSize,
       ),
     )
-    // Key by (stageId, stageAttemptId) so tasks from retried attempts don't mix
-    stageTasks.getOrElseUpdate((e.stageId, e.stageAttemptId), mutable.ArrayBuffer.empty) += task
+
+    val key = (e.stageId, e.stageAttemptId)
+
+    // ── Always update exact aggregates ──────────────────────────────────────
+    val s = stageAgg.getOrElseUpdate(key, new StageSummary)
+    s.taskCount               += 1
+    if (info.failed)      s.failedCount      += 1
+    if (info.killed)      s.killedCount       += 1
+    if (info.speculative) s.speculativeCount  += 1
+    if (inp.bytesRead > 0)    s.tasksWithInputBytes  += 1
+    if (out.bytesWritten > 0) s.tasksWithOutputBytes += 1
+    s.totalExecutorRunTimeMs  += metrics.executorRunTime
+    s.totalExecutorCpuTimeNs  += metrics.executorCpuTime
+    s.totalGcTimeMs           += metrics.jvmGCTime
+    s.totalInputBytes         += inp.bytesRead
+    s.totalOutputBytes        += out.bytesWritten
+    s.totalResultSize         += metrics.resultSize
+    s.totalDiskSpillBytes     += metrics.diskBytesSpilled
+    s.totalMemorySpillBytes   += metrics.memoryBytesSpilled
+    s.totalShuffleRemoteBytes += shufR.remoteBytesRead
+    s.totalShuffleLocalBytes  += shufR.localBytesRead
+    s.totalShuffleBytesWritten+= shufW.bytesWritten
+
+    // ── Reservoir-sample the task object ────────────────────────────────────
+    // Key by (stageId, stageAttemptId) so tasks from retried attempts don't mix.
+    val n   = stageExactTaskCount.getOrElse(key, 0) + 1
+    stageExactTaskCount(key) = n
+    val buf = stageTasks.getOrElseUpdate(key, mutable.ArrayBuffer.empty)
+    if (n <= MaxSampledTasksPerStage) {
+      buf += task
+    } else {
+      // Vitter's Algorithm R: replace a randomly chosen existing sample slot
+      val j = scala.util.Random.nextInt(n)
+      if (j < MaxSampledTasksPerStage) buf(j) = task
+    }
   }
 
   def onStageCompleted(e: SparkListenerStageCompleted): Unit = {
     val info  = e.stageInfo
     val key   = (info.stageId, info.attemptNumber())
     val tasks = stageTasks.getOrElse(key, mutable.ArrayBuffer.empty).toSeq
+
     // Merge submission-time and completion-time cached names.  At submission time isCached can
     // be false even for RDDs that are being cached: block-status updates are async and may not
     // have propagated yet.  By completion time all cached blocks are registered, so this union
     // captures caching that was missed at submission.
     val cachedAtCompletion = info.rddInfos.filter(_.isCached).map(_.name).toSet
     val mergedCachedNames  = stageRddCachedNames.getOrElse(key, Set.empty) ++ cachedAtCompletion
+
+    val agg = stageAgg.get(key)
     stageInfo(key) = StageData(
       stageId          = info.stageId,
       attemptId        = info.attemptNumber(),
@@ -177,6 +243,25 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
       rddNames         = stageRddNames.getOrElse(key, Nil),
       rddCachedNames   = mergedCachedNames,
       details          = info.details,
+
+      hasExactAggregates        = agg.isDefined,
+      exactTaskCount            = agg.map(_.taskCount).getOrElse(0),
+      exactFailedCount          = agg.map(_.failedCount).getOrElse(0),
+      exactKilledCount          = agg.map(_.killedCount).getOrElse(0),
+      exactSpeculativeCount     = agg.map(_.speculativeCount).getOrElse(0),
+      exactInputBytes           = agg.map(_.totalInputBytes).getOrElse(0L),
+      exactOutputBytes          = agg.map(_.totalOutputBytes).getOrElse(0L),
+      exactResultSize           = agg.map(_.totalResultSize).getOrElse(0L),
+      exactDiskSpillBytes       = agg.map(_.totalDiskSpillBytes).getOrElse(0L),
+      exactMemorySpillBytes     = agg.map(_.totalMemorySpillBytes).getOrElse(0L),
+      exactGcTimeMs             = agg.map(_.totalGcTimeMs).getOrElse(0L),
+      exactExecutorRunTimeMs    = agg.map(_.totalExecutorRunTimeMs).getOrElse(0L),
+      exactExecutorCpuTimeNs    = agg.map(_.totalExecutorCpuTimeNs).getOrElse(0L),
+      exactShuffleRemoteBytes   = agg.map(_.totalShuffleRemoteBytes).getOrElse(0L),
+      exactShuffleLocalBytes    = agg.map(_.totalShuffleLocalBytes).getOrElse(0L),
+      exactShuffleBytesWritten  = agg.map(_.totalShuffleBytesWritten).getOrElse(0L),
+      exactTasksWithInputBytes  = agg.map(_.tasksWithInputBytes).getOrElse(0),
+      exactTasksWithOutputBytes = agg.map(_.tasksWithOutputBytes).getOrElse(0),
     )
   }
 

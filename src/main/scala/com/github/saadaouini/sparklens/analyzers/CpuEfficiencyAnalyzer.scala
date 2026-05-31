@@ -9,7 +9,8 @@ object CpuEfficiencyAnalyzer extends Analyzer {
     val lowCpuFraction = propDouble(app, "spark.sparklens.cpu.lowFraction", 0.20)
     app.stages.values.toSeq.flatMap { stage =>
       val runTimeMs  = stage.totalExecutorRunTimeMs
-      val cpuTimeNs  = stage.tasks.map(_.metrics.executorCpuTimeNs).sum
+      val cpuTimeNs  = if (stage.hasExactAggregates) stage.exactExecutorCpuTimeNs
+                       else stage.tasks.map(_.metrics.executorCpuTimeNs).sum
       if (runTimeMs < MinRunTimeMs || cpuTimeNs == 0) Nil
       else {
         val cpuFraction = (cpuTimeNs / 1000000.0) / runTimeMs  // ns → ms

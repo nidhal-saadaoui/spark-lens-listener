@@ -15,7 +15,9 @@ object SkewAnalyzer extends Analyzer {
     val p95WarnRatio = propDouble(app, "spark.sparklens.skew.warnP95Ratio",   3.0)
     val p95CritRatio = propDouble(app, "spark.sparklens.skew.critP95Ratio",   8.0)
     app.stages.values.toSeq.flatMap { stage =>
-      if (stage.tasks.size < minTasks) Nil
+      // Use exact task count when available (tasks list may be a reservoir sample)
+      val taskCount = if (stage.exactTaskCount > 0) stage.exactTaskCount else stage.tasks.size
+      if (taskCount < minTasks) Nil
       else {
         val durations = stage.tasks.map(_.durationMs).sorted
         val p50 = percentile(durations, 50)
@@ -43,22 +45,25 @@ object SkewAnalyzer extends Analyzer {
             val severity = if (durCrit || concCrit || shufCrit) Critical else Warning
             val idPrefix = if (severity == Critical) "skew-crit" else "skew-warn"
 
-            val totalShuffle = stage.tasks.map(t =>
-              t.metrics.shuffleRemoteBytesRead + t.metrics.shuffleLocalBytesRead).sum
-            val totalInput = stage.tasks.map(_.metrics.inputBytesRead).sum
+            val totalShuffle = stage.totalShuffleRemoteBytes + stage.totalShuffleLocalBytes
+            val totalInput   = stage.totalInputBytes
             val skewType   =
               if (totalShuffle > 0 && totalShuffle > totalInput) "shuffle"
               else if (totalInput > 0)                            "input"
               else                                                "unknown"
 
-            val stragglers = durations.count(_ > p50 * p95WarnRatio)
+            // Scale straggler count from sample size to actual task count
+            val sampledStragglers = durations.count(_ > p50 * p95WarnRatio)
+            val stragglers = if (stage.exactTaskCount > durations.size && durations.nonEmpty)
+              (sampledStragglers.toDouble / durations.size * taskCount).round.toInt
+            else sampledStragglers
             val ratioFmt   = fmtDouble(durRatio, 1)
             val concPct    = fmtDouble(conc * 100, 0)
 
             val sigDesc =
               s"p95 task duration (${fmtMs(p95)}) is ${ratioFmt}× the median (${fmtMs(p50)}). " +
               s"The top 5% slowest tasks hold ${concPct}% of total stage time " +
-              s"($stragglers straggler(s) out of ${durations.size})."
+              s"($stragglers straggler(s) out of $taskCount)."
 
             val (title, rec, confFix, codFix) = skewType match {
               case "shuffle" =>

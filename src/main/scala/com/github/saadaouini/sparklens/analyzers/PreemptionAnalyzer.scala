@@ -30,19 +30,20 @@ object PreemptionAnalyzer extends Analyzer {
 
     // High task kill rate per stage
     app.stages.values.foreach { stage =>
-      if (stage.tasks.size >= MinTasks) {
-        val killed     = stage.tasks.count(_.killed)
-        val killedRate = killed.toDouble / stage.tasks.size
+      val totalTasks = if (stage.exactTaskCount > 0) stage.exactTaskCount else stage.tasks.size
+      if (totalTasks >= MinTasks) {
+        val killed     = if (stage.hasExactAggregates) stage.exactKilledCount else stage.tasks.count(_.killed)
+        val killedRate = killed.toDouble / totalTasks
         if (killedRate >= killedTaskRateWarn) {
           issues += Issue(
             id             = s"preemption-killed-${stage.stageId}",
             severity       = Warning,
             category       = "preemption",
             title          = s"High Task Kill Rate in Stage ${stage.stageId} — ${fmtDouble(killedRate * 100, 0)}%",
-            description    = s"$killed of ${stage.tasks.size} tasks were killed in stage ${stage.stageId} (${stage.name}). Indicates resource contention or speculation killing slow tasks.",
+            description    = s"$killed of $totalTasks tasks were killed in stage ${stage.stageId} (${stage.name}). Indicates resource contention or speculation killing slow tasks.",
             recommendation = "Disable speculation (spark.speculation=false) if tasks are killed by speculative execution. Otherwise investigate cluster resource pressure.",
             affectedStages = Seq(stage.stageId),
-            metrics        = Map("killed_tasks" -> killed.toString, "total_tasks" -> stage.tasks.size.toString),
+            metrics        = Map("killed_tasks" -> killed.toString, "total_tasks" -> totalTasks.toString),
           )
         }
       }

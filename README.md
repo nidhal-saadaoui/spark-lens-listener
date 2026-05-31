@@ -12,7 +12,17 @@ spark-submit \
   myJob.jar
 ```
 
-That's it. At application end, a report appears in the driver stdout. To write to a dedicated file instead, set `spark.sparklens.report.path`.
+That's it. At application end, a report appears in the driver stdout.
+
+> **Note:** `spark.extraListeners=` **replaces** any existing listener list. To append
+> spark-lens alongside another listener, comma-separate them:
+> ```
+> --conf spark.extraListeners=com.other.Listener,com.github.saadaouini.sparklens.SparkLensListener
+> ```
+
+> **Batch only:** spark-lens is designed for batch Spark applications. Structured Streaming
+> apps share the same listener API but the stage/job model does not map cleanly to streaming
+> micro-batches — results will be incomplete or misleading. To write to a dedicated file instead, set `spark.sparklens.report.path`.
 
 ## Sample report
 
@@ -158,15 +168,15 @@ spark.sparklens.fail.on=critical
 
 ## Health score
 
-| Severity | Deduction |
-|---|---|
-| Critical | −25 pts |
-| Warning | −10 pts |
-| Info | −3 pts |
+| Severity | Deduction | Cap |
+|---|---|---|
+| Critical | −30 pts | −100 |
+| Warning | −10 pts | −25 |
+| Info | −2 pts | −10 |
 
 Score floors at 0. A job with no issues scores 100/100. Per-category caps prevent a
-flood of one type from dominating (max −100 for criticals, max −30 for warnings,
-max −15 for info).
+single category from monopolising the score — a job with one CartesianProduct (−30 → 70)
+always scores worse than a job with only config warnings capped at −25 (→ 75).
 
 ## Configurable thresholds
 

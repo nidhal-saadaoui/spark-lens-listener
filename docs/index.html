@@ -172,6 +172,7 @@
         <div class="step-num">1</div>
         <h3>Attach the listener</h3>
         <p>Add <code>spark.extraListeners=...SparkLensListener</code> and <code>spark.sparklens.output=text</code> to your <code>spark-submit</code> command or <code>spark-defaults.conf</code>. Nothing else needed.</p>
+        <p style="margin-top:8px;font-size:13px;color:#64748b"><strong>Heads-up:</strong> <code>spark.extraListeners=</code> replaces any existing listener list. Use a comma to append: <code>OtherListener,SparkLensListener</code>. For batch applications only — Structured Streaming results will be misleading.</p>
       </div>
       <div class="step">
         <div class="step-num">2</div>
@@ -371,9 +372,9 @@ spark-submit \
     <p style="font-size:14px;color:#64748b;margin-bottom:24px">Deducted per issue, floored at 0. Per-category caps prevent a flood of config warnings from masking genuine criticals.</p>
     <div class="score-cards">
       <div class="score-card"><div class="sc-val c-ok">100</div><div class="sc-lbl">Perfect</div><div class="sc-desc">No issues detected</div></div>
-      <div class="score-card"><div class="sc-val c-crit">−25</div><div class="sc-lbl">per Critical</div><div class="sc-desc">Cap: −100</div></div>
-      <div class="score-card"><div class="sc-val c-warn">−10</div><div class="sc-lbl">per Warning</div><div class="sc-desc">Cap: −30</div></div>
-      <div class="score-card"><div class="sc-val c-info">−3</div><div class="sc-lbl">per Info</div><div class="sc-desc">Cap: −15</div></div>
+      <div class="score-card"><div class="sc-val c-crit">−30</div><div class="sc-lbl">per Critical</div><div class="sc-desc">Cap: −100</div></div>
+      <div class="score-card"><div class="sc-val c-warn">−10</div><div class="sc-lbl">per Warning</div><div class="sc-desc">Cap: −25</div></div>
+      <div class="score-card"><div class="sc-val c-info">−2</div><div class="sc-lbl">per Info</div><div class="sc-desc">Cap: −10</div></div>
     </div>
   </div>
 </section>

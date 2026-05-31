@@ -98,6 +98,38 @@ class CacheAnalyzerSpec extends AnyFlatSpec with Matchers {
     )) shouldBe empty
   }
 
+  // ── DataFrame / SQL repeated-scan detection ─────────────────────────────
+
+  it should "flag a table scanned in 3+ SQL executions without InMemoryRelation" in {
+    val plan = "FileScan parquet default.orders[id#1L,amount#2] ..."
+    val execs = (0 to 2).map(i => i.toLong -> sqlExec(id = i.toLong, plan = plan)).toMap
+    val issues = CacheAnalyzer.analyze(app(sqlExecs = execs))
+    val cacheIssues = issues.filter(_.category == "cache")
+    cacheIssues should have size 1
+    cacheIssues.head.title should include("default.orders")
+    cacheIssues.head.metrics("execution_count") shouldBe "3"
+  }
+
+  it should "not flag a table scanned in only 2 SQL executions" in {
+    val plan = "FileScan parquet default.orders[id#1L] ..."
+    val execs = (0 to 1).map(i => i.toLong -> sqlExec(id = i.toLong, plan = plan)).toMap
+    CacheAnalyzer.analyze(app(sqlExecs = execs)).filter(_.category == "cache") shouldBe empty
+  }
+
+  it should "not flag SQL executions that contain InMemoryRelation" in {
+    val cachedPlan = "InMemoryRelation [...]\n   +- FileScan parquet default.events[...]"
+    val uncachedPlan = "FileScan parquet default.events[...]"
+    val execs = Map(
+      0L -> sqlExec(id = 0L, plan = cachedPlan),
+      1L -> sqlExec(id = 1L, plan = uncachedPlan),
+      2L -> sqlExec(id = 2L, plan = uncachedPlan),
+      3L -> sqlExec(id = 3L, plan = uncachedPlan),
+    )
+    // execs 1,2,3 scan default.events but exec 0 has InMemoryRelation so
+    // those three are NOT flagged (the table IS cached somewhere in the app)
+    CacheAnalyzer.analyze(app(sqlExecs = execs)).filter(_.id.startsWith("cache-sql")) shouldBe empty
+  }
+
   it should "flag the RDD name in the issue title" in {
     val s0 = stage(stageId = 0, rddNames = Seq("clickstream"))
     val s1 = stage(stageId = 1, rddNames = Seq("clickstream"))

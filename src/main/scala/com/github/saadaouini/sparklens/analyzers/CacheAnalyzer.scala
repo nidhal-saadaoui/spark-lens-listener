@@ -33,7 +33,7 @@ object CacheAnalyzer extends Analyzer {
     // user already called .cache()/.persist(), isCached is true and we suppress the issue.
     val cachedRddNames: Set[String] = app.stages.values.flatMap(_.rddCachedNames).toSet
 
-    rddToJobs.toSeq.collect {
+    val rddIssues = rddToJobs.toSeq.collect {
       case (rddName, jobs) if jobs.size >= 2 && !cachedRddNames.contains(rddName) =>
         val sortedJobs = jobs.toSeq.sorted
         val jobNames   = sortedJobs.flatMap(id => app.jobs.get(id).map(j => s"'${j.name.take(60)}'"))
@@ -50,5 +50,47 @@ object CacheAnalyzer extends Analyzer {
           metrics        = Map("job_count" -> jobs.size.toString, "rdd_name" -> rddName),
         )
     }
+
+    // ── DataFrame / SQL repeated-scan detection ───────────────────────────────
+    // When users call df.cache() Spark inserts InMemoryRelation into the plan.
+    // If the same table appears in ≥ 3 SQL executions without InMemoryRelation,
+    // the user is re-reading it from source every time.
+    // Threshold 3 (not 2) avoids false positives for the common pattern of reading
+    // a table twice in one pipeline (e.g. count then aggregate).
+    val sqlIssues: Seq[Issue] = if (app.sqlExecutions.isEmpty) Nil else {
+      val FileScanRe = """FileScan \w+ ([\w.`/]+)\[""".r
+
+      // If a table appears under InMemoryRelation in ANY execution, df.cache() was called
+      // on it somewhere — suppress that table globally across all executions.
+      val cachedTableNames: Set[String] = app.sqlExecutions.values
+        .filter(_.physicalPlan.contains("InMemoryRelation"))
+        .flatMap(sql => FileScanRe.findAllMatchIn(sql.physicalPlan).map(_.group(1)))
+        .toSet
+
+      val tableCount = scala.collection.mutable.Map[String, Int]()
+      app.sqlExecutions.values.foreach { sql =>
+        FileScanRe.findAllMatchIn(sql.physicalPlan)
+          .map(_.group(1))
+          .toSet                                  // count each table once per execution
+          .filterNot(cachedTableNames.contains)   // skip tables that are cached anywhere
+          .foreach(t => tableCount(t) = tableCount.getOrElse(t, 0) + 1)
+      }
+
+      tableCount.toSeq.collect {
+        case (table, count) if count >= 3 =>
+          Issue(
+            id             = s"cache-sql-${table.hashCode.abs}",
+            severity       = Warning,
+            category       = "cache",
+            title          = s"Repeated Scan of '$table' Across $count SQL Executions Without Caching",
+            description    = s"The table '$table' is read from source in $count separate SQL executions. Each execution re-reads the full dataset from storage when the result could be cached in memory.",
+            recommendation = "Cache the DataFrame before the first action and unpersist when done.",
+            codeFix        = Some("val cached = df.cache()\ncached.count()  // materialise\n// ... reuse cached ...\ncached.unpersist()"),
+            metrics        = Map("execution_count" -> count.toString, "table" -> table),
+          )
+      }
+    }
+
+    rddIssues ++ sqlIssues
   }
 }

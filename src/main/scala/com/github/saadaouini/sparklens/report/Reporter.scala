@@ -11,9 +11,14 @@ trait Reporter {
   protected def healthScore(issues: Seq[Issue]): Int = {
     // Each severity category has a per-category cap so that a flood of config warnings
     // (which fire on nearly every job) doesn't kill the score the way real criticals do.
-    val critDeduct = math.min(issues.count(_.severity.order == 0) * 25, 100)
-    val warnDeduct = math.min(issues.count(_.severity.order == 1) * 10,  30)
-    val infoDeduct = math.min(issues.count(_.severity.order == 2) * 3,   15)
+    // Critical: −30 pts each, cap −100 (was −25 / −100)
+    // Warning:  −10 pts each, cap  −25 (was −10 / −30)
+    // Info:      −2 pts each, cap  −10 (was  −3 / −15)
+    // With these weights, 1 Critical (−30 → score 70) is worse than 3 Warnings
+    // capped at −25 (→ score 75), which was previously inverted.
+    val critDeduct = math.min(issues.count(_.severity.order == 0) * 30, 100)
+    val warnDeduct = math.min(issues.count(_.severity.order == 1) * 10,  25)
+    val infoDeduct = math.min(issues.count(_.severity.order == 2) * 2,   10)
     math.max(0, 100 - critDeduct - warnDeduct - infoDeduct)
   }
 

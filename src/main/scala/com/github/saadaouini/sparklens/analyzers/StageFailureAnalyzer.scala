@@ -27,9 +27,10 @@ object StageFailureAnalyzer extends Analyzer {
       }
 
       // High task failure rate
-      if (stage.tasks.size >= MinTasks) {
-        val failed      = stage.tasks.count(_.failed)
-        val failedRate  = failed.toDouble / stage.tasks.size
+      val totalTasks = if (stage.exactTaskCount > 0) stage.exactTaskCount else stage.tasks.size
+      if (totalTasks >= MinTasks) {
+        val failed     = if (stage.hasExactAggregates) stage.exactFailedCount else stage.tasks.count(_.failed)
+        val failedRate = failed.toDouble / totalTasks
         if (failedRate >= failedTaskRateWarn) {
           val sample = stage.tasks
             .filter(_.failed)
@@ -43,10 +44,10 @@ object StageFailureAnalyzer extends Analyzer {
             severity       = Warning,
             category       = "reliability",
             title          = s"High Task Failure Rate in Stage ${stage.stageId} — ${fmtDouble(failedRate * 100, 0)}%",
-            description    = s"$failed of ${stage.tasks.size} tasks failed in stage ${stage.stageId} (${stage.name}). Sample error: $sample",
+            description    = s"$failed of $totalTasks tasks failed in stage ${stage.stageId} (${stage.name}). Sample error: $sample",
             recommendation = "Check executor logs for OOM, network errors, or application-level exceptions. Increase spark.task.maxFailures if transient failures are expected.",
             affectedStages = Seq(stage.stageId),
-            metrics        = Map("failed_tasks" -> failed.toString, "total_tasks" -> stage.tasks.size.toString),
+            metrics        = Map("failed_tasks" -> failed.toString, "total_tasks" -> totalTasks.toString),
           )
         }
       }

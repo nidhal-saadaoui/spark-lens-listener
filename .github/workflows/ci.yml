@@ -140,9 +140,12 @@ jobs:
       - name: Verify report content
         run: |
           cat /tmp/spark-lens-report.txt
-          grep -q "Health:" /tmp/spark-lens-report.txt
-          grep -q "Excessive Shuffles" /tmp/spark-lens-report.txt
-          grep -q "Repeated Scan" /tmp/spark-lens-report.txt
+          grep -q "Health:"                              /tmp/spark-lens-report.txt
+          grep -q "Repeated Scan"                        /tmp/spark-lens-report.txt
+          grep -q "Excessive Shuffles"                   /tmp/spark-lens-report.txt
+          grep -q "Window Function Without PARTITION BY" /tmp/spark-lens-report.txt
+          grep -q "Cartesian Product"                    /tmp/spark-lens-report.txt
+          grep -q "Broadcast Join Disabled"              /tmp/spark-lens-report.txt
           echo "All expected issues detected in report."
 
       - name: Upload report
