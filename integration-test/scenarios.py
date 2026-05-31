@@ -219,10 +219,10 @@ def run_plan_window_after(spark):
 # ─── driver_collect ──────────────────────────────────────────────────────────
 
 def run_driver_collect_before(spark):
-    """take(N) adds CollectLimit to the physical plan → DriverBottleneckAnalyzer Info fires.
+    """limit(N).collect() adds CollectLimit to the physical plan → DriverBottleneckAnalyzer Info fires.
     Note: resultSize-based Warning requires cluster mode; CollectLimit check works locally."""
-    df = spark.range(500_000).withColumn("val", F.rand(seed=42))
-    rows = df.take(500_000)
+    df = spark.range(5_000_000).withColumn("val", F.rand(seed=42))
+    rows = df.limit(500_000).collect()
     print(f"   driver_collect-before rows fetched: {len(rows)}")
 
 

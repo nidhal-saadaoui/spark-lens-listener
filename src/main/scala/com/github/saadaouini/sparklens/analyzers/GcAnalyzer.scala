@@ -16,7 +16,7 @@ object GcAnalyzer extends Analyzer {
         val fraction = gcTime.toDouble / runTime
         if (fraction < WarnFraction) Nil
         else {
-          val pct      = f"${fraction * 100}%.0f%%"
+          val pct      = s"${fmtDouble(fraction * 100, 0)}%"
           val severity = if (fraction >= CritFraction) Critical else Warning
           Seq(Issue(
             id             = s"gc-${stage.stageId}",
@@ -27,7 +27,7 @@ object GcAnalyzer extends Analyzer {
             recommendation = "Increase spark.executor.memory so the heap has headroom. Switch to G1GC which pauses shorter and more predictably than the default collector. Reduce object churn: use primitive arrays over boxed collections, and avoid large intermediate DataFrames held in executor memory.",
             configFix      = Some("spark.executor.extraJavaOptions=-XX:+UseG1GC -XX:InitiatingHeapOccupancyPercent=35"),
             affectedStages = Seq(stage.stageId),
-            metrics        = Map("gc_fraction" -> f"$fraction%.3f", "gc_ms" -> gcTime.toString, "run_ms" -> runTime.toString),
+            metrics        = Map("gc_fraction" -> fmtDouble(fraction, 3), "gc_ms" -> gcTime.toString, "run_ms" -> runTime.toString),
           ))
         }
       }

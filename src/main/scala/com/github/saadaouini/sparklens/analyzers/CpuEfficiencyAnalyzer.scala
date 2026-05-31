@@ -15,7 +15,7 @@ object CpuEfficiencyAnalyzer extends Analyzer {
         val cpuFraction = (cpuTimeNs / 1000000.0) / runTimeMs  // ns → ms
         if (cpuFraction >= LowCpuFraction) Nil
         else {
-          val pct = f"${cpuFraction * 100}%.0f%%"
+          val pct = s"${fmtDouble(cpuFraction * 100, 0)}%"
           Seq(Issue(
             id             = s"cpu-${stage.stageId}",
             severity       = Info,
@@ -25,7 +25,7 @@ object CpuEfficiencyAnalyzer extends Analyzer {
             recommendation = "Look at the stage metrics to identify the bottleneck: if shuffleReadBytes dominate, the stage is network-bound — reduce shuffles or enable compression. If inputBytes dominate, the source files are too small — compact them. For Python UDFs, switch to pandas UDFs (Arrow-based) which process batches and hand control back to the JVM quickly.",
             affectedStages = Seq(stage.stageId),
             metrics        = Map(
-              "cpu_fraction"  -> f"$cpuFraction%.3f",
+              "cpu_fraction"  -> fmtDouble(cpuFraction, 3),
               "run_time_ms"   -> runTimeMs.toString,
               "cpu_time_ms"   -> (cpuTimeNs / 1000000).toString,
             ),

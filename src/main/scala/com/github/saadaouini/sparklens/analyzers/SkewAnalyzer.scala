@@ -37,10 +37,11 @@ object SkewAnalyzer extends Analyzer {
 
         if (ratio < RatioWarn) Nil
         else {
+          val ratioFmt = fmtDouble(ratio, 1)
           val sigDesc = if (signal == "bytes")
-            f"Max shuffle read ${fmtBytes(maxBytes)} is ${ratio}%.1f× the median ${fmtBytes(medBytes)} across tasks."
+            s"Max shuffle read ${fmtBytes(maxBytes)} is ${ratioFmt}× the median ${fmtBytes(medBytes)} across tasks."
           else
-            f"Max task duration ${fmtMs(maxMs)} is ${ratio}%.1f× the median ${fmtMs(medMs)}."
+            s"Max task duration ${fmtMs(maxMs)} is ${ratioFmt}× the median ${fmtMs(medMs)}."
 
           val severity = if (ratio >= RatioCrit) Critical else Warning
           val idPrefix = if (severity == Critical) "skew-crit" else "skew-warn"
@@ -48,7 +49,7 @@ object SkewAnalyzer extends Analyzer {
             id             = s"$idPrefix-${stage.stageId}",
             severity       = severity,
             category       = "skew",
-            title          = s"${if (severity == Critical) "Severe Task" else "Task"} Skew in Stage ${stage.stageId} (${stage.name}) — ${f"$ratio%.1f"}× skew",
+            title          = s"${if (severity == Critical) "Severe Task" else "Task"} Skew in Stage ${stage.stageId} (${stage.name}) — ${ratioFmt}× skew",
             description    = s"$sigDesc One or more partitions hold disproportionate data. The slowest task becomes a straggler that blocks the entire stage — all other tasks finish and sit idle waiting for it.",
             recommendation = "Enable AQE skewJoin to split oversized partitions automatically. For hot-key groupBy, apply two-phase key salting: add a random suffix before the first aggregation, then strip it and re-aggregate.",
             configFix      = Some("spark.sql.adaptive.skewJoin.enabled=true"),
@@ -63,7 +64,7 @@ object SkewAnalyzer extends Analyzer {
             affectedStages = Seq(stage.stageId),
             metrics        = Map(
               "skew_signal"   -> signal,
-              "ratio"         -> f"$ratio%.1f",
+              "ratio"         -> ratioFmt,
               "max_ms"        -> maxMs.toString,
               "median_ms"     -> medMs.toString,
               "max_bytes"     -> maxBytes.toString,

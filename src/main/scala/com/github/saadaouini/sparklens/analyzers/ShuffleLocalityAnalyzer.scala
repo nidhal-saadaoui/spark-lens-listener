@@ -19,15 +19,15 @@ object ShuffleLocalityAnalyzer extends Analyzer {
           id             = s"shuffle-locality-${stage.stageId}",
           severity       = Warning,
           category       = "io",
-          title          = s"High Remote Shuffle Read in Stage ${stage.stageId} — ${f"${remoteRatio * 100}%.0f"}% remote",
-          description    = s"Stage ${stage.stageId} read ${fmtBytes(remote)} remotely out of ${fmtBytes(total)} total shuffle data (${f"${remoteRatio * 100}%.0f"}% remote). Cross-rack or cross-AZ reads are typically 3–10× slower than local disk reads and saturate shared cluster network bandwidth, slowing every other job running concurrently.",
+          title          = s"High Remote Shuffle Read in Stage ${stage.stageId} — ${fmtDouble(remoteRatio * 100, 0)}% remote",
+          description    = s"Stage ${stage.stageId} read ${fmtBytes(remote)} remotely out of ${fmtBytes(total)} total shuffle data (${fmtDouble(remoteRatio * 100, 0)}% remote). Cross-rack or cross-AZ reads are typically 3–10× slower than local disk reads and saturate shared cluster network bandwidth, slowing every other job running concurrently.",
           recommendation = "Enable the external shuffle service so shuffle blocks survive executor loss without remote re-fetch. Configure rack-aware scheduling so Spark prefers co-located executors. On cloud clusters, pin executors to a single AZ. If data must cross AZs, enable shuffle compression to reduce transferred bytes.",
           configFix      = Some("spark.locality.wait=3s"),
           affectedStages = Seq(stage.stageId),
           metrics        = Map(
             "remote_bytes" -> remote.toString,
             "local_bytes"  -> local.toString,
-            "remote_ratio" -> f"$remoteRatio%.3f",
+            "remote_ratio" -> fmtDouble(remoteRatio, 3),
           ),
         ))
       }

@@ -20,7 +20,7 @@ object MemoryPressureAnalyzer extends Analyzer {
         val hasSpill   = spill >= SpillBytesThreshold
 
         if (hasGc && hasSpill) {
-          val gcPct = f"${gcFraction * 100}%.0f%%"
+          val gcPct = s"${fmtDouble(gcFraction * 100, 0)}%"
           Seq(Issue(
             id             = s"memory-pressure-${stage.stageId}",
             severity       = Critical,
@@ -31,7 +31,7 @@ object MemoryPressureAnalyzer extends Analyzer {
             configFix      = Some("spark.executor.memory=<increase>  spark.memory.offHeap.enabled=true  spark.memory.offHeap.size=2g"),
             affectedStages = Seq(stage.stageId),
             metrics        = Map(
-              "gc_fraction"  -> f"$gcFraction%.3f",
+              "gc_fraction"  -> fmtDouble(gcFraction, 3),
               "spill_bytes"  -> spill.toString,
             ),
           ))

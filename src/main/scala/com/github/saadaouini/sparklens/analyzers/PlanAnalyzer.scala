@@ -22,8 +22,11 @@ object PlanAnalyzer extends Analyzer {
         )
       }
 
-      // SinglePartition in the Exchange node means all rows are sent to one executor
-      if (plan.contains("Window") && plan.contains("SinglePartition")) {
+      // SinglePartition *after* the Window node means all rows go to one executor.
+      // Check indexOf so we don't false-positive on a COUNT/SUM aggregation's own
+      // SinglePartition exchange that appears above (before) the Window in plan text.
+      val windowIdx = plan.indexOf("Window")
+      if (windowIdx >= 0 && plan.indexOf("SinglePartition", windowIdx) >= 0) {
         issues += Issue(
           id             = s"plan-window-nopart-${sql.executionId}",
           severity       = Warning,
