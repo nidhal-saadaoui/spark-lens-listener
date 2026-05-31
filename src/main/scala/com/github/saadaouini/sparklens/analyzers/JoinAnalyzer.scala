@@ -54,9 +54,15 @@ object JoinAnalyzer extends Analyzer {
         }
       }
 
-      // Many shuffle exchanges in one job — BroadcastExchange is not a shuffle, exclude it
-      val allExchanges   = plan.sliding("Exchange".length).count(_ == "Exchange")
-      val broadcastCount = plan.sliding("BroadcastExchange".length).count(_ == "BroadcastExchange")
+      // Many shuffle exchanges in one job — BroadcastExchange is not a shuffle, exclude it.
+      // Count only in the tree section (before "\n\n(" detail separator) to avoid
+      // double-counting: FORMATTED plans repeat each node in the detail section.
+      val planForCounting = {
+        val sep = plan.indexOf("\n\n(")
+        if (sep > 0) plan.substring(0, sep) else plan
+      }
+      val allExchanges   = planForCounting.sliding("Exchange".length).count(_ == "Exchange")
+      val broadcastCount = planForCounting.sliding("BroadcastExchange".length).count(_ == "BroadcastExchange")
       val shuffleCount   = allExchanges - broadcastCount
       if (shuffleCount >= excessiveShuffleCount) {
         issues += Issue(

@@ -6,7 +6,7 @@ Zero-config Spark performance analyzer. Attach via `spark.extraListeners` — ge
 
 ```bash
 spark-submit \
-  --packages com.github.saadaouini:spark-lens_2.12:0.1.0 \
+  --packages com.github.saadaouini:spark-lens_2.12:0.2.0 \
   --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
   --conf spark.sparklens.output=text \
   myJob.jar
@@ -68,7 +68,7 @@ on large pipelines.
 |---|---|---|
 | SkewAnalyzer | skew | p95/p50 task duration ratio > 3× or top-5% tasks hold > 25% of stage time |
 | SpillAnalyzer | spill | Total disk spill > 100 MB |
-| JoinAnalyzer | join | Broadcast disabled on SMJ, broadcast threshold > 1 GB, > 4 shuffle exchanges |
+| JoinAnalyzer | join | Broadcast disabled on SMJ, broadcast threshold ≥ 1 GB, ≥ 4 shuffle exchanges |
 | GcAnalyzer | gc | GC time > 10% of executor run time |
 | CacheAnalyzer | cache | Same RDD scanned in multiple jobs without caching |
 | PreemptionAnalyzer | preemption | Executor lost mid-job, task kill rate > 5% |
@@ -101,7 +101,7 @@ Fail the Spark application itself if critical issues are found:
 
 ```bash
 spark-submit \
-  --packages com.github.saadaouini:spark-lens_2.12:0.1.0 \
+  --packages com.github.saadaouini:spark-lens_2.12:0.2.0 \
   --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
   --conf spark.sparklens.fail.on=critical \
   myJob.jar
@@ -165,7 +165,7 @@ spark.sparklens.fail.on=critical
 | Info | −3 pts |
 
 Score floors at 0. A job with no issues scores 100/100. Per-category caps prevent a
-flood of config warnings from drowning out genuine criticals (max −30 for warnings,
+flood of one type from dominating (max −100 for criticals, max −30 for warnings,
 max −15 for info).
 
 ## Configurable thresholds
@@ -201,7 +201,7 @@ All analyzer thresholds can be overridden per-job via Spark conf:
 
 ## Build
 
-Requires Java 17+ and sbt:
+Requires Java 11+ and sbt (Java 17 recommended, matches Spark 3.5.x):
 
 ```bash
 sbt test     # run tests

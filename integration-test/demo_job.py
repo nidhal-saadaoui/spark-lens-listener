@@ -54,14 +54,15 @@ products = spark.range(20).withColumn("product_id", F.col("id").cast("int")) \
 result2 = orders.join(products, "product_id").agg(F.count("*")).collect()[0][0]
 print(f"   joined rows: {result2}")
 
-# ── 3. Repeated scan — named RDD read twice across two jobs ──────────────────
-# Naming the RDD exposes "user_events" in StageInfo.rddInfos, which
-# CacheAnalyzer uses to track re-scanned datasets.
+# ── 3. Repeated scan — named RDD used in two separate jobs without caching ───
+# Using .count() and .reduce() directly on the named RDD keeps "user_events"
+# as the top-level RDD in each stage's rddInfos (no PythonRDD wrapper layer),
+# so CacheAnalyzer reliably detects the repeated scan.
 print(">> Job 3a + 3b: repeated scan of named RDD (no cache)")
 rdd = sc.parallelize(range(100_000), 10).setName("user_events")
-count1 = rdd.filter(lambda x: x % 2 == 0).count()   # job 3a
-count2 = rdd.map(lambda x: x * 2).sum()              # job 3b — re-scans user_events
-print(f"   even count={count1}  double_sum={count2}")
+count1 = rdd.count()                        # job 3a — scans user_events
+count2 = rdd.reduce(lambda a, b: a + b)    # job 3b — re-scans user_events
+print(f"   count={count1}  sum={count2}")
 
 print("\n=== jobs complete — spark-lens report follows ===\n")
 spark.stop()

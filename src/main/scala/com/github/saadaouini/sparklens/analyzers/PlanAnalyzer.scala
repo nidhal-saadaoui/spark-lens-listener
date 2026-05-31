@@ -27,30 +27,25 @@ object PlanAnalyzer extends Analyzer {
         )
       }
 
-      // Detect unpartitioned window using the FORMATTED plan layout.
-      // Spark's physicalPlanDescription uses ExplainMode.FORMATTED which has two sections:
-      //   1. Tree (root→leaf): just node names and nesting
-      //   2. Detailed (leaf→root by ascending node ID): each node with Arguments
-      // An unpartitioned window's Exchange SinglePartition is a *child* of the Window node,
-      // so it has a lower node ID and appears BEFORE Window in the detailed section.
-      // A partitioned window's Exchange SinglePartition is a *parent* (outer aggregation),
-      // so it has a higher node ID and appears AFTER Window in the detailed section.
-      // For simple plan text (unit tests), fall back to indexOf ordering in the tree.
+      // Detect unpartitioned window by searching only the tree section of the plan.
+      // Spark's FORMATTED plan (ExplainMode.FORMATTED) has two sections separated by "\n\n(":
+      //   1. Tree (root→leaf): node names with inline arguments, e.g. "Exchange SinglePartition"
+      //   2. Detail: numbered nodes with full arguments
+      // We use only the tree section because exchange argument types (SinglePartition vs
+      // hashpartitioning) appear inline there and are version-stable.  The detail section's
+      // node-ID ordering has varied across Spark versions, making it unreliable.
+      //
+      // In the tree, an unpartitioned window's Exchange SinglePartition is a child of the
+      // Window node and therefore appears AFTER "Window" in the text.  A partitioned window's
+      // Exchange SinglePartition (for the outer aggregation) is an ancestor and appears BEFORE
+      // "Window".  So: SinglePartition found after Window in the tree ⟹ unpartitioned.
       val windowFires: Boolean = if (plan.contains("Window")) {
-        val detailStart = plan.indexOf("\n\n(")
-        if (detailStart < 0) {
-          // Simple format: tree order matches execution order; SinglePartition after Window = child
-          val wIdx = plan.indexOf("Window")
-          wIdx >= 0 && plan.indexOf("SinglePartition", wIdx) >= 0
-        } else {
-          val detail = plan.substring(detailStart)
-          val windowInDetail = detail.indexOf(") Window\n")
-          if (windowInDetail < 0) false
-          else {
-            val spInDetail = detail.indexOf("SinglePartition")
-            spInDetail >= 0 && spInDetail < windowInDetail
-          }
+        val treePlan = {
+          val sep = plan.indexOf("\n\n(")
+          if (sep > 0) plan.substring(0, sep) else plan
         }
+        val wIdx = treePlan.indexOf("Window")
+        wIdx >= 0 && treePlan.indexOf("SinglePartition", wIdx) >= 0
       } else false
       if (windowFires) {
         issues += Issue(

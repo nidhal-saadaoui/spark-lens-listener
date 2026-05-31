@@ -51,18 +51,17 @@ class PlanAnalyzerSpec extends AnyFlatSpec with Matchers {
     issues.exists(_.id.startsWith("plan-window-nopart")) shouldBe false
   }
 
-  it should "not flag Window with partitionBy in FORMATTED plan where count's SinglePartition has higher node ID" in {
-    // Spark uses ExplainMode.FORMATTED for physicalPlanDescription.  In that format the
-    // detailed section lists nodes in ascending ID order (leaves first, root last).
-    // A partitioned window's Exchange SinglePartition (for the outer count/agg) has a HIGHER
-    // node ID than the Window node — so SinglePartition appears AFTER Window in the text.
-    // PlanAnalyzer must detect this and NOT fire.
+  it should "not flag Window with partitionBy in FORMATTED plan" in {
+    // Spark FORMATTED plan: exchange types are inline in the tree section.
+    // A partitioned window's Exchange SinglePartition belongs to the OUTER aggregation and
+    // appears BEFORE "Window" in the tree (it's an ancestor).  The window's own child exchange
+    // uses hashpartitioning and appears AFTER "Window".  PlanAnalyzer must NOT fire.
     val plan =
       "* HashAggregate (4)\n" +
-      "+- Exchange (3)\n" +
+      "+- Exchange SinglePartition, ENSURE_REQUIREMENTS (3)\n" +
       "   +- * HashAggregate (2)\n" +
       "      +- Window (1)\n" +
-      "         +- Exchange (0)\n" +
+      "         +- Exchange hashpartitioning(user_id#1, 5) (0)\n" +
       "\n\n" +
       "(0) Exchange\n" +
       "Arguments: hashpartitioning(user_id#1, 5)\n\n" +
@@ -76,14 +75,14 @@ class PlanAnalyzerSpec extends AnyFlatSpec with Matchers {
     issues.exists(_.id.startsWith("plan-window-nopart")) shouldBe false
   }
 
-  it should "flag Window without partitionBy in FORMATTED plan where SinglePartition has lower node ID" in {
-    // Without PARTITION BY the Exchange SinglePartition is the window's own exchange (a child),
-    // so it gets a lower node ID than the Window node and appears BEFORE it in the detailed section.
+  it should "flag Window without partitionBy in FORMATTED plan" in {
+    // Without PARTITION BY the window's own Exchange SinglePartition is a child of Window
+    // and appears AFTER "Window" in the tree section.  PlanAnalyzer must fire.
     val plan =
       "* HashAggregate (4)\n" +
       "+- * HashAggregate (3)\n" +
       "   +- Window (2)\n" +
-      "      +- Exchange (1)\n" +
+      "      +- Exchange SinglePartition, ENSURE_REQUIREMENTS (1)\n" +
       "         +- * Range (0)\n" +
       "\n\n" +
       "(0) Range\n\n" +

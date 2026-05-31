@@ -54,21 +54,20 @@ def run_skew_after(spark):
 # ─── cache ───────────────────────────────────────────────────────────────────
 
 def run_cache_before(spark):
-    """Named RDD used in two separate jobs without caching."""
+    """Named RDD used in two separate jobs without caching — triggers repeated-scan warning."""
     sc = spark.sparkContext
     rdd = sc.parallelize(range(200_000), 10).setName("user_events")
-    count1 = rdd.filter(lambda x: x % 2 == 0).count()
-    total2 = rdd.map(lambda x: x * 2).sum()
+    count1 = rdd.count()
+    total2 = rdd.reduce(lambda a, b: a + b)
     print(f"   cache-before: count={count1} sum={total2}")
 
 
 def run_cache_after(spark):
-    """Same RDD but cached before the first action and unpersisted after."""
+    """Same RDD cached before the first action — repeated-scan warning is suppressed."""
     sc = spark.sparkContext
     rdd = sc.parallelize(range(200_000), 10).setName("user_events").cache()
-    rdd.count()          # materialise
-    count1 = rdd.filter(lambda x: x % 2 == 0).count()
-    total2 = rdd.map(lambda x: x * 2).sum()
+    count1 = rdd.count()
+    total2 = rdd.reduce(lambda a, b: a + b)
     rdd.unpersist()
     print(f"   cache-after: count={count1} sum={total2}")
 

@@ -61,6 +61,13 @@ class SmallFilesAnalyzerSpec extends AnyFlatSpec with Matchers {
     SmallFilesAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks)))) shouldBe empty
   }
 
+  it should "not flag stages that read from in-memory cache" in {
+    // Cached RDD reads show up in inputBytesRead but are not file I/O — suppress the warning
+    val tasks = (0 until 10).map(i => task(id = i, inputBytes = 10 * MB))
+    val s = stage(tasks = tasks, rddCachedNames = Set("user_events"))
+    SmallFilesAnalyzer.analyze(app(stages = Map(0 -> s))) shouldBe empty
+  }
+
   it should "not flag when avg bytes per task is above a custom targetMb" in {
     // avg ~64 MB — below default 128 MB but above custom 32 MB
     val tasks = (0 until 10).map(i => task(id = i, inputBytes = 64 * MB))

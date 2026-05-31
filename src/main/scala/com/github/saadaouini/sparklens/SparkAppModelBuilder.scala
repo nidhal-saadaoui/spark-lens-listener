@@ -159,6 +159,12 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
     val info  = e.stageInfo
     val key   = (info.stageId, info.attemptNumber())
     val tasks = stageTasks.getOrElse(key, mutable.ArrayBuffer.empty).toSeq
+    // Merge submission-time and completion-time cached names.  At submission time isCached can
+    // be false even for RDDs that are being cached: block-status updates are async and may not
+    // have propagated yet.  By completion time all cached blocks are registered, so this union
+    // captures caching that was missed at submission.
+    val cachedAtCompletion = info.rddInfos.filter(_.isCached).map(_.name).toSet
+    val mergedCachedNames  = stageRddCachedNames.getOrElse(key, Set.empty) ++ cachedAtCompletion
     stageInfo(key) = StageData(
       stageId          = info.stageId,
       attemptId        = info.attemptNumber(),
@@ -169,7 +175,7 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
       completionTimeMs = info.completionTime,
       failureReason    = info.failureReason.filter(_.nonEmpty),
       rddNames         = stageRddNames.getOrElse(key, Nil),
-      rddCachedNames   = stageRddCachedNames.getOrElse(key, Set.empty),
+      rddCachedNames   = mergedCachedNames,
       details          = info.details,
     )
   }

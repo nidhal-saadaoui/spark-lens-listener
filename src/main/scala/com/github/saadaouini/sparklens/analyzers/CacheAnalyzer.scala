@@ -4,11 +4,12 @@ import com.github.saadaouini.sparklens.model._
 
 object CacheAnalyzer extends Analyzer {
 
-  // Spark-internal RDD class names that are infrastructure, not user datasets
+  // Spark-internal RDD class names that are infrastructure, not user datasets.
+  // "Python" covers PySpark's PythonRDD wrapper — it's an execution vehicle, not a dataset.
   private val InternalPrefixes = Set(
     "Map", "Parallel", "Shuffled", "HadoopRDD", "FileScan", "SQLExecution",
     "WholeStage", "Exchange", "Filter", "Project", "Scan", "Union", "Coalesced",
-    "Zipped",
+    "Zipped", "Python",
   )
 
   private def isInternal(name: String): Boolean =

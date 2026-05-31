@@ -10,7 +10,9 @@ object SmallFilesAnalyzer extends Analyzer {
     val targetBytesPerTask = propLong(app, "spark.sparklens.smallFiles.targetMb", 128L) * MB
     app.stages.values.toSeq.flatMap { stage =>
       val inputTasks = stage.tasks.filter(_.metrics.inputBytesRead > 0)
-      if (inputTasks.size < MinTasks) Nil
+      // Skip stages that read from in-memory cache: cached RDD blocks are tracked through
+      // inputBytesRead but represent memory reads, not source-file I/O.
+      if (inputTasks.size < MinTasks || stage.rddCachedNames.nonEmpty) Nil
       else {
         val totalInput = stage.totalInputBytes
         val avgPerTask = totalInput / inputTasks.size

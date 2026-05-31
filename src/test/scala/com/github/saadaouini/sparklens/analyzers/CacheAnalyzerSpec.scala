@@ -87,6 +87,17 @@ class CacheAnalyzerSpec extends AnyFlatSpec with Matchers {
     )) shouldBe empty
   }
 
+  it should "skip PySpark PythonRDD as an internal infrastructure name" in {
+    val s0 = stage(stageId = 0, rddNames = Seq("PythonRDD"))
+    val s1 = stage(stageId = 1, rddNames = Seq("PythonRDD"))
+    val j0 = job(jobId = 0, stageIds = Seq(0))
+    val j1 = job(jobId = 1, stageIds = Seq(1))
+    CacheAnalyzer.analyze(app(
+      stages = Map(0 -> s0, 1 -> s1),
+      jobs   = Map(0 -> j0, 1 -> j1),
+    )) shouldBe empty
+  }
+
   it should "flag the RDD name in the issue title" in {
     val s0 = stage(stageId = 0, rddNames = Seq("clickstream"))
     val s1 = stage(stageId = 1, rddNames = Seq("clickstream"))

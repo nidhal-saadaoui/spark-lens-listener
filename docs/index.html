@@ -147,7 +147,7 @@
     <p>Attach via <code style="background:rgba(255,255,255,.1);padding:2px 7px;border-radius:4px;font-size:16px">spark.extraListeners</code> — get actionable recommendations in your logs at job end. No Python, no extra services, no code changes.</p>
     <div class="hero-cmd">
       <div class="cmd-line"><span class="hl">spark-submit</span> \</div>
-      <div>&nbsp;&nbsp;<span class="flag">--packages</span> <span class="val">com.github.saadaouini:spark-lens_2.12:0.1.0</span> \</div>
+      <div>&nbsp;&nbsp;<span class="flag">--packages</span> <span class="val">com.github.saadaouini:spark-lens_2.12:0.2.0</span> \</div>
       <div>&nbsp;&nbsp;<span class="flag">--conf</span> <span class="val">spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener</span> \</div>
       <div>&nbsp;&nbsp;<span class="flag">--conf</span> <span class="val">spark.sparklens.output=text</span> \</div>
       <div>&nbsp;&nbsp;<span class="hl">myJob.jar</span></div>
@@ -252,7 +252,7 @@
       </div>
       <div class="analyzer-card">
         <div class="ac-header"><span class="ac-name">JoinAnalyzer</span><span class="ac-cat cat-join">join</span></div>
-        <div class="ac-signal">Broadcast disabled on SortMergeJoin, broadcast threshold &gt; 1 GB (driver OOM risk), or &gt; 4 shuffle exchanges in one query.</div>
+        <div class="ac-signal">Broadcast disabled on SortMergeJoin, broadcast threshold ≥ 1 GB (driver OOM risk), or ≥ 4 shuffle exchanges in one query.</div>
       </div>
       <div class="analyzer-card">
         <div class="ac-header"><span class="ac-name">GcAnalyzer</span><span class="ac-cat cat-gc">gc</span></div>
@@ -350,7 +350,7 @@
         <h3 style="font-size:15px;font-weight:700;margin-bottom:10px">Fail on critical</h3>
         <div class="code-block" style="font-size:12px"><span class="cb-comment"># CI fails automatically — exit code non-zero</span>
 spark-submit \
-  <span class="cb-flag">--packages</span> <span class="cb-val">com.github.saadaouini:spark-lens_2.12:0.1.0</span> \
+  <span class="cb-flag">--packages</span> <span class="cb-val">com.github.saadaouini:spark-lens_2.12:0.2.0</span> \
   <span class="cb-flag">--conf</span> <span class="cb-val">spark.extraListeners=...SparkLensListener</span> \
   <span class="cb-flag">--conf</span> <span class="cb-val">spark.sparklens.fail.on=critical</span> \
   myJob.jar</div>
