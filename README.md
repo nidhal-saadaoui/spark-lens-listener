@@ -12,13 +12,19 @@ spark-submit \
   myJob.jar
 ```
 
-That's it. At application end the report is written to a dedicated file in the JVM temp directory (e.g. `/tmp/spark-lens-app-20241105-0042.txt`) and the path is logged at INFO level. The report is never mixed with Spark's log output.
+That's it. At application end the report is written to `spark-lens-report.txt` in the current working directory and a single line is printed to stdout:
+
+```
+[spark-lens] report written to spark-lens-report.txt
+```
+
+The report is always a dedicated file — never mixed with Spark's log stream, regardless of the cluster's Log4j or Logback configuration.
 
 ## Sample report
 
-When output is enabled without an explicit `report.path`, spark-lens logs:
+When output is enabled without an explicit `report.path`, spark-lens writes `spark-lens-report.txt` in the current working directory and prints one line to stdout:
 ```
-INFO SparkLensListener: spark-lens: report written to /tmp/spark-lens-app-20241105-0042.txt
+[spark-lens] report written to spark-lens-report.txt
 ```
 The file contains:
 ```
