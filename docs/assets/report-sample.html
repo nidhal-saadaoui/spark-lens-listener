@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>spark-lens &#8212; daily-revenue-pipeline</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0;background:#f9fafb;color:#111}
+  .wrap{max-width:900px;margin:32px auto;padding:0 20px}
+  h1{font-size:20px;margin:0 0 4px;font-weight:700}
+  .meta{color:#6b7280;font-size:13px;margin-bottom:24px}
+  .cards{display:flex;gap:12px;margin-bottom:28px;flex-wrap:wrap}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 20px;min-width:120px;text-align:center}
+  .card-val{font-size:28px;font-weight:800}
+  .denom{font-size:14px;font-weight:400}
+  .card-lbl{font-size:12px;color:#6b7280;margin-top:2px}
+  .score{color:#111}.crit{color:#dc2626}.warn{color:#d97706}.info-n{color:#2563eb}
+  details.issue{border-radius:6px;margin-bottom:10px;overflow:hidden}
+  details.issue.critical{border:1px solid #dc262640;border-left:4px solid #dc2626;background:#fef2f2}
+  details.issue.warning {border:1px solid #d9770640;border-left:4px solid #d97706;background:#fffbeb}
+  details.issue.info    {border:1px solid #2563eb40;border-left:4px solid #2563eb;background:#eff6ff}
+  summary{display:flex;align-items:center;gap:8px;padding:12px 16px;cursor:pointer;list-style:none;user-select:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:'\25B6';font-size:9px;color:#9ca3af;transition:transform .15s;flex-shrink:0;display:inline-block}
+  details[open]>summary::before{transform:rotate(90deg)}
+  .badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;letter-spacing:.5px;color:#fff;flex-shrink:0}
+  .critical .badge{background:#dc2626}
+  .warning  .badge{background:#d97706}
+  .info     .badge{background:#2563eb}
+  .issue-title{font-weight:600;font-size:14px;color:#111}
+  .issue-body{padding:0 16px 14px 42px}
+  .desc{margin:0 0 6px;color:#374151;font-size:13px;line-height:1.5}
+  .rec{margin:0 0 4px;color:#374151;font-size:13px;line-height:1.5}
+  .arrow{font-weight:700;margin-right:4px}
+  .fix-label{font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 3px}
+  .fix-block{margin:0;background:#1e1e1e;color:#d4d4d4;padding:10px 12px;border-radius:4px;font-size:12px;overflow-x:auto;white-space:pre;line-height:1.5;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace}
+  .locations{margin-top:10px;display:flex;flex-wrap:wrap;gap:5px}
+  .pill{font-size:11px;background:#fff;border:1px solid #d1d5db;border-radius:4px;padding:2px 7px;color:#374151;font-family:'SFMono-Regular',Consolas,monospace}
+  .no-issues{color:#15803d;font-weight:600;font-size:15px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>spark-lens report</h1>
+  <div class="meta">daily-revenue-pipeline &nbsp;&middot;&nbsp; local-1780243680789 &nbsp;&middot;&nbsp; Spark 3.5.5</div>
+  <div class="cards">
+    <div class="card"><div class="card-val score">64<span class="denom">/100</span></div><div class="card-lbl">Health Score</div></div>
+    <div class="card"><div class="card-val crit">0</div><div class="card-lbl">Critical</div></div>
+    <div class="card"><div class="card-val warn">3</div><div class="card-lbl">Warning</div></div>
+    <div class="card"><div class="card-val info-n">2</div><div class="card-lbl">Info</div></div>
+  </div>
+  <details class="issue warning" open>
+  <summary>
+    <span class="badge">WARNING</span>
+    <span class="issue-title">Java Serializer in Use — Switch to Kryo</span>
+  </summary>
+  <div class="issue-body">
+    <p class="desc">Java serialization is 10× slower than Kryo and produces 2–10× larger byte arrays. Every JVM shuffle write, broadcast variable, and RDD persist pays this cost. Note: Python closures in PySpark are always serialized by cloudpickle regardless of this setting — the benefit applies to JVM-side objects (Scala/Java RDDs, broadcast variables, accumulators).</p>
+    <p class="rec"><span class="arrow">&#8594;</span> Switch to Kryo for JVM workloads. Register your domain classes for maximum performance (unregistered classes fall back to class-name strings which waste space). For pure PySpark jobs this is a minor improvement; focus on Arrow/pandas UDFs to reduce Python serialization overhead instead.</p>
+    <div class="fix-label">config</div><pre class="fix-block">spark.serializer=org.apache.spark.serializer.KryoSerializer</pre><div class="fix-label">code</div><pre class="fix-block">spark.conf.set(&quot;spark.serializer&quot;, &quot;org.apache.spark.serializer.KryoSerializer&quot;)
+// optionally: spark.conf.set(&quot;spark.kryo.registrationRequired&quot;, &quot;false&quot;)</pre>
+  </div>
+</details>
+<details class="issue warning" open>
+  <summary>
+    <span class="badge">WARNING</span>
+    <span class="issue-title">Adaptive Query Execution (AQE) Is Disabled</span>
+  </summary>
+  <div class="issue-body">
+    <p class="desc">AQE automatically coalesces shuffle partitions, handles skew, and switches join strategies at runtime. Disabling it forces static planning.</p>
+    <p class="rec"><span class="arrow">&#8594;</span> Enable AQE for all production workloads on Spark 3.x.</p>
+    <div class="fix-label">config</div><pre class="fix-block">spark.sql.adaptive.enabled=true</pre>
+  </div>
+</details>
+<details class="issue warning" open>
+  <summary>
+    <span class="badge">WARNING</span>
+    <span class="issue-title">Excessive Shuffles in &quot;count at NativeMethodAccessorImpl.java:0&quot; (6 exchanges) [+1 more queries]</span>
+  </summary>
+  <div class="issue-body">
+    <p class="desc">The query plan contains 6 shuffle exchanges. Each exchange sorts and repartitions the entire dataset across the network — 6 exchanges means the data crosses the network 6 times.</p>
+    <p class="rec"><span class="arrow">&#8594;</span> Restructure the query to reduce shuffles: combine multiple groupBy steps into one, pre-partition source data by the join/group key using bucket tables, and cache shared intermediate results used in multiple branches. Enable AQE so Spark can coalesce small post-shuffle partitions at runtime.</p>
+    <div class="fix-label">config</div><pre class="fix-block">spark.sql.adaptive.enabled=true</pre><div class="locations"><span class="pill">job&nbsp;2</span> <span class="pill">job&nbsp;3</span> <span class="pill">job&nbsp;4</span> <span class="pill">job&nbsp;5</span></div>
+  </div>
+</details>
+<details class="issue info" open>
+  <summary>
+    <span class="badge">INFO</span>
+    <span class="issue-title">Low Executor Memory Overhead — Risk of Off-Heap OOM</span>
+  </summary>
+  <div class="issue-body">
+    <p class="desc">Executor memory is 1g with only 10% overhead. Native memory usage (Python UDFs, Arrow, native libs) can exceed this.</p>
+    <p class="rec"><span class="arrow">&#8594;</span> Set memoryOverhead to at least 10% of executor memory, or 512 MB minimum for PySpark jobs.</p>
+    <div class="fix-label">config</div><pre class="fix-block">spark.executor.memoryOverheadFactor=0.2</pre>
+  </div>
+</details>
+<details class="issue info" open>
+  <summary>
+    <span class="badge">INFO</span>
+    <span class="issue-title">Default Shuffle Partitions (200) — May Be Too Few or Too Many</span>
+  </summary>
+  <div class="issue-body">
+    <p class="desc">The default of 200 shuffle partitions is rarely optimal. Too few causes large tasks and spill; too many causes overhead from small tasks.</p>
+    <p class="rec"><span class="arrow">&#8594;</span> Enable AQE to auto-tune, or set to 2–3× the number of executor cores in your cluster.</p>
+    <div class="fix-label">config</div><pre class="fix-block">spark.sql.adaptive.enabled=true  # lets AQE pick the right value</pre>
+  </div>
+</details>
+</div>
+</body>
+</html>

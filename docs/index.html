@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>spark-lens — Zero-config Spark Performance Analyzer</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0 }
+  html { scroll-behavior: smooth }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fff; color: #111; line-height: 1.6 }
+
+  /* ── nav ── */
+  nav { position: sticky; top: 0; z-index: 100; background: rgba(15,23,42,.97); backdrop-filter: blur(8px); border-bottom: 1px solid #1e293b }
+  .nav-inner { max-width: 1080px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; gap: 32px; height: 52px }
+  .nav-logo { color: #f8fafc; font-weight: 700; font-size: 15px; text-decoration: none; letter-spacing: -.3px }
+  .nav-logo span { color: #f97316 }
+  .nav-links { display: flex; gap: 24px; margin-left: auto }
+  .nav-links a { color: #94a3b8; text-decoration: none; font-size: 13px; font-weight: 500; transition: color .15s }
+  .nav-links a:hover { color: #f8fafc }
+  .nav-badge { background: #f97316; color: #fff; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; text-decoration: none; margin-left: 8px }
+
+  /* ── hero ── */
+  .hero { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 60%, #0f172a 100%); color: #f8fafc; padding: 96px 24px 80px }
+  .hero-inner { max-width: 780px; margin: 0 auto; text-align: center }
+  .hero-badge { display: inline-block; background: rgba(249,115,22,.15); border: 1px solid rgba(249,115,22,.4); color: #fb923c; font-size: 12px; font-weight: 600; padding: 4px 14px; border-radius: 20px; margin-bottom: 24px; letter-spacing: .5px }
+  .hero h1 { font-size: clamp(32px, 5vw, 56px); font-weight: 800; line-height: 1.15; letter-spacing: -.5px; margin-bottom: 20px }
+  .hero h1 span { color: #f97316 }
+  .hero p { font-size: 18px; color: #94a3b8; max-width: 560px; margin: 0 auto 36px }
+  .hero-cmd { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 20px 24px; text-align: left; font-size: 13px; font-family: 'SFMono-Regular', Consolas, monospace; line-height: 2; color: #94a3b8; max-width: 600px; margin: 0 auto 36px }
+  .hero-cmd .cmd-line::before { content: '$ '; color: #475569 }
+  .hero-cmd .hl { color: #f8fafc }
+  .hero-cmd .flag { color: #7dd3fc }
+  .hero-cmd .val { color: #86efac }
+  .hero-pills { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap }
+  .pill-stat { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); color: #cbd5e1; font-size: 13px; font-weight: 500; padding: 6px 16px; border-radius: 6px }
+  .pill-stat strong { color: #f8fafc }
+
+  /* ── sections ── */
+  section { padding: 72px 24px }
+  section:nth-child(even) { background: #f8fafc }
+  .section-inner { max-width: 1080px; margin: 0 auto }
+  h2 { font-size: 28px; font-weight: 700; letter-spacing: -.3px; margin-bottom: 8px }
+  .section-sub { color: #64748b; font-size: 16px; margin-bottom: 40px }
+
+  /* ── how it works ── */
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px }
+  .step { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 28px 24px }
+  .step-num { width: 36px; height: 36px; background: #f97316; color: #fff; border-radius: 8px; font-weight: 800; font-size: 16px; display: flex; align-items: center; justify-content: center; margin-bottom: 16px }
+  .step h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px }
+  .step p { font-size: 14px; color: #64748b; line-height: 1.6 }
+  .step code { background: #f1f5f9; padding: 1px 5px; border-radius: 3px; font-size: 12px; font-family: monospace }
+
+  /* ── terminal ── */
+  .terminal-wrap { border-radius: 10px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.18); border: 1px solid #1e293b }
+  .terminal-bar { background: #1e293b; padding: 10px 16px; display: flex; align-items: center; gap: 8px }
+  .dot { width: 12px; height: 12px; border-radius: 50% }
+  .dot-r { background: #ef4444 } .dot-y { background: #eab308 } .dot-g { background: #22c55e }
+  .terminal-bar span { color: #64748b; font-size: 12px; margin-left: auto; font-family: monospace }
+  .terminal-body { background: #0f172a; padding: 20px 24px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; font-size: 13px; line-height: 1.8; overflow-x: auto; white-space: pre; color: #e2e8f0 }
+  .t-eq  { color: #475569 }
+  .t-app { color: #f8fafc; font-weight: 600 }
+  .t-score { color: #22c55e; font-weight: 700 }
+  .t-warn { color: #fbbf24 }
+  .t-info { color: #60a5fa }
+  .t-crit { color: #f87171 }
+  .t-arrow { color: #34d399; font-weight: 700 }
+  .t-conf { color: #7dd3fc }
+  .t-dim  { color: #475569 }
+
+  /* ── report preview ── */
+  .preview-frame { width: 100%; height: 640px; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.1); overflow: hidden }
+
+  /* ── analyzers table ── */
+  .analyzer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px }
+  .analyzer-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px }
+  .analyzer-card:hover { border-color: #f97316; box-shadow: 0 0 0 1px #f97316 }
+  .ac-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px }
+  .ac-name { font-size: 13px; font-weight: 700; color: #0f172a }
+  .ac-cat { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px }
+  .cat-skew      { background: #fef9c3; color: #854d0e }
+  .cat-spill     { background: #fee2e2; color: #991b1b }
+  .cat-join      { background: #ede9fe; color: #5b21b6 }
+  .cat-gc        { background: #dcfce7; color: #166534 }
+  .cat-cache     { background: #e0f2fe; color: #075985 }
+  .cat-preemption{ background: #fce7f3; color: #9d174d }
+  .cat-plan      { background: #fff7ed; color: #9a3412 }
+  .cat-config    { background: #f1f5f9; color: #334155 }
+  .cat-io        { background: #ecfdf5; color: #065f46 }
+  .cat-reliability{background: #fef2f2; color: #7f1d1d }
+  .ac-signal { font-size: 12px; color: #64748b; line-height: 1.4 }
+
+  /* ── config tables ── */
+  .config-table { width: 100%; border-collapse: collapse; font-size: 13px }
+  .config-table th { text-align: left; padding: 10px 14px; background: #f1f5f9; color: #475569; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .4px }
+  .config-table td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: top }
+  .config-table tr:last-child td { border-bottom: none }
+  .config-table code { background: #f8fafc; border: 1px solid #e2e8f0; padding: 1px 6px; border-radius: 4px; font-family: monospace; font-size: 12px }
+  .config-table .def { font-family: monospace; color: #0f172a; font-weight: 600 }
+
+  /* ── code block ── */
+  .code-block { background: #1e293b; color: #e2e8f0; border-radius: 8px; padding: 20px 24px; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 13px; line-height: 1.8; overflow-x: auto; white-space: pre; margin: 16px 0 }
+  .cb-comment { color: #64748b }
+  .cb-flag    { color: #7dd3fc }
+  .cb-val     { color: #86efac }
+  .cb-key     { color: #f8fafc }
+
+  /* ── health score ── */
+  .score-cards { display: flex; gap: 16px; flex-wrap: wrap }
+  .score-card { flex: 1; min-width: 160px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px 24px; text-align: center }
+  .sc-val { font-size: 36px; font-weight: 800; line-height: 1 }
+  .sc-lbl { font-size: 13px; color: #64748b; margin-top: 4px }
+  .sc-desc { font-size: 12px; color: #94a3b8; margin-top: 6px }
+  .c-crit { color: #dc2626 } .c-warn { color: #d97706 } .c-info { color: #2563eb } .c-ok { color: #16a34a }
+
+  /* ── footer ── */
+  footer { background: #0f172a; color: #64748b; padding: 40px 24px; text-align: center }
+  footer a { color: #94a3b8; text-decoration: none }
+  footer a:hover { color: #f8fafc }
+
+  @media (max-width: 600px) {
+    .nav-links { display: none }
+    .hero h1 { font-size: 28px }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="#"><span>spark</span>-lens</a>
+    <div class="nav-links">
+      <a href="#how-it-works">How it works</a>
+      <a href="#output">Report output</a>
+      <a href="#analyzers">Analyzers</a>
+      <a href="#configuration">Configuration</a>
+      <a href="#ci">CI gate</a>
+    </div>
+    <a class="nav-badge" href="https://github.com/nidhal-saadaoui/spark-lens-listener">GitHub →</a>
+  </div>
+</nav>
+
+<!-- ── HERO ─────────────────────────────────────────────────────────────── -->
+<div class="hero">
+  <div class="hero-inner">
+    <div class="hero-badge">Apache Spark 3.x · Scala 2.12 / 2.13</div>
+    <h1>Zero-config Spark<br><span>performance analyzer</span></h1>
+    <p>Attach via <code style="background:rgba(255,255,255,.1);padding:2px 7px;border-radius:4px;font-size:16px">spark.extraListeners</code> — get actionable recommendations in your logs at job end. No Python, no extra services, no code changes.</p>
+    <div class="hero-cmd">
+      <div class="cmd-line"><span class="hl">spark-submit</span> \</div>
+      <div>&nbsp;&nbsp;<span class="flag">--packages</span> <span class="val">com.github.saadaouini:spark-lens_2.12:0.1.0</span> \</div>
+      <div>&nbsp;&nbsp;<span class="flag">--conf</span> <span class="val">spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener</span> \</div>
+      <div>&nbsp;&nbsp;<span class="flag">--conf</span> <span class="val">spark.sparklens.output=text</span> \</div>
+      <div>&nbsp;&nbsp;<span class="hl">myJob.jar</span></div>
+    </div>
+    <div class="hero-pills">
+      <span class="pill-stat"><strong>18</strong> analyzers</span>
+      <span class="pill-stat"><strong>3</strong> output formats</span>
+      <span class="pill-stat"><strong>24</strong> configurable thresholds</span>
+      <span class="pill-stat">Zero dependencies</span>
+      <span class="pill-stat">Apache 2.0</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── HOW IT WORKS ──────────────────────────────────────────────────────── -->
+<section id="how-it-works">
+  <div class="section-inner">
+    <h2>How it works</h2>
+    <p class="section-sub">Three steps, no infrastructure required.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Attach the listener</h3>
+        <p>Add <code>spark.extraListeners=...SparkLensListener</code> and <code>spark.sparklens.output=text</code> to your <code>spark-submit</code> command or <code>spark-defaults.conf</code>. Nothing else needed.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>Run your job normally</h3>
+        <p>spark-lens listens to every task, stage, job, and SQL execution as they complete — zero overhead on the hot path. It only processes data after the application ends.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>Read the report</h3>
+        <p>At application end, a prioritized list of issues appears in the driver logs, written to a file, or both. Every issue includes a description, a concrete recommendation, and ready-to-paste config or code fixes.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── TEXT REPORT ───────────────────────────────────────────────────────── -->
+<section id="output">
+  <div class="section-inner">
+    <h2>Report output</h2>
+    <p class="section-sub">Three formats: <strong>text</strong> for driver logs, <strong>HTML</strong> for humans, <strong>JSON</strong> for CI parsers and dashboards.</p>
+
+    <h3 style="font-size:16px;font-weight:700;margin-bottom:12px;color:#374151">Text report — appears in driver logs</h3>
+    <div class="terminal-wrap" style="margin-bottom:40px">
+      <div class="terminal-bar">
+        <div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div>
+        <span>spark-submit — driver stdout</span>
+      </div>
+      <div class="terminal-body"><span class="t-eq">======================================================================</span>
+  spark-lens  |  <span class="t-app">daily-revenue-pipeline</span>  (app-20241105-0042)
+  Spark 3.5.0   |  Health: <span class="t-score">64/100</span>  |  3 warning  ·  2 info
+<span class="t-eq">======================================================================</span>
+
+  [<span class="t-warn">⚠ WARNING </span>]  Java Serializer in Use — Switch to Kryo
+           Java serialization is 10× slower than Kryo. Every shuffle write,
+           broadcast variable, and RDD persist pays this cost.
+        <span class="t-arrow">→</span>  Switch to Kryo for JVM workloads.
+           <span class="t-conf">config: spark.serializer=org.apache.spark.serializer.KryoSerializer</span>
+
+  [<span class="t-warn">⚠ WARNING </span>]  Adaptive Query Execution (AQE) Is Disabled
+           AQE handles skew and coalesces partitions at runtime.
+        <span class="t-arrow">→</span>  Enable AQE for all production workloads on Spark 3.x.
+           <span class="t-conf">config: spark.sql.adaptive.enabled=true</span>
+
+  [<span class="t-warn">⚠ WARNING </span>]  Excessive Shuffles in "..." (6 exchanges) [+1 more queries]
+           6 shuffle exchanges — the data crosses the network 6 times.
+        <span class="t-arrow">→</span>  Reduce shuffles; enable AQE.
+           <span class="t-conf">config: spark.sql.adaptive.enabled=true</span>
+           <span class="t-dim">jobs:   2, 3, 4, 5</span>
+
+  [<span class="t-info">ℹ INFO    </span>]  Low Executor Memory Overhead — Risk of Off-Heap OOM
+        <span class="t-arrow">→</span>  <span class="t-conf">spark.executor.memoryOverheadFactor=0.2</span>
+
+  [<span class="t-info">ℹ INFO    </span>]  Default Shuffle Partitions (200) — May Be Too Few or Too Many
+        <span class="t-arrow">→</span>  <span class="t-conf">spark.sql.adaptive.enabled=true</span>
+
+<span class="t-eq">======================================================================</span></div>
+    </div>
+
+    <h3 style="font-size:16px;font-weight:700;margin-bottom:12px;color:#374151">HTML report — interactive, collapsible issues with stage/job links</h3>
+    <p style="font-size:13px;color:#64748b;margin-bottom:16px">Issues are grouped by type — e.g. <em>Disk Spill in Stage 3 [+4 more stages]</em> — so the report stays readable on large pipelines. Click any issue to collapse it.</p>
+    <iframe class="preview-frame" src="assets/report-sample.html" title="spark-lens HTML report sample"></iframe>
+  </div>
+</section>
+
+<!-- ── ANALYZERS ────────────────────────────────────────────────────────── -->
+<section id="analyzers">
+  <div class="section-inner">
+    <h2>What it detects</h2>
+    <p class="section-sub">18 analyzers covering skew, memory, I/O, query planning, configuration, and reliability.</p>
+    <div class="analyzer-grid">
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">SkewAnalyzer</span><span class="ac-cat cat-skew">skew</span></div>
+        <div class="ac-signal">p95/p50 task duration ratio &gt; 3× or top-5% tasks hold &gt; 25% of stage time. Distinguishes shuffle skew from input skew with different recommendations.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">SpillAnalyzer</span><span class="ac-cat cat-spill">spill</span></div>
+        <div class="ac-signal">Total disk spill &gt; 100 MB (Warning) or &gt; 1 GB (Critical). Disk I/O is 10–100× slower than RAM.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">JoinAnalyzer</span><span class="ac-cat cat-join">join</span></div>
+        <div class="ac-signal">Broadcast disabled on SortMergeJoin, broadcast threshold &gt; 1 GB (driver OOM risk), or &gt; 4 shuffle exchanges in one query.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">GcAnalyzer</span><span class="ac-cat cat-gc">gc</span></div>
+        <div class="ac-signal">GC time &gt; 10% (Warning) or &gt; 20% (Critical) of executor run time. GC pauses can cause heartbeat timeouts.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">CacheAnalyzer</span><span class="ac-cat cat-cache">cache</span></div>
+        <div class="ac-signal">Same RDD scanned in ≥ 2 jobs without caching — the full upstream lineage is re-executed each time.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">PlanAnalyzer</span><span class="ac-cat cat-plan">plan</span></div>
+        <div class="ac-signal">CartesianProduct (quadratic), Window without PARTITION BY (single-partition serial), round-robin repartition, missing CBO row count statistics.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">ConfigAnalyzer</span><span class="ac-cat cat-config">config</span></div>
+        <div class="ac-signal">AQE disabled, Java serializer, default shuffle partitions (200), low executor memory overhead.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">SmallFilesAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">Input avg &lt; 64 MB/task with majority of tasks reading tiny files — too many map tasks, high scheduling overhead.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">OutputSmallFilesAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">Output avg &lt; 64 MB/task — each task writes one file, so many tasks mean many small files that slow every downstream job.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">ShuffleLocalityAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">&gt; 70% of shuffle bytes read remotely — cross-rack or cross-AZ reads saturate shared network bandwidth.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">DriverBottleneckAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">collect() result &gt; 50 MB back to driver, or CollectLimit / TakeOrderedAndProject in the SQL plan.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">CpuEfficiencyAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">CPU utilization &lt; 20% of executor run time — most core time is I/O wait, shuffle network, or JVM overhead.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">PreemptionAnalyzer</span><span class="ac-cat cat-preemption">preemption</span></div>
+        <div class="ac-signal">Executor lost mid-job or task kill rate &gt; 5% per stage — indicates resource contention or container eviction.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">SpeculationAnalyzer</span><span class="ac-cat cat-config">config</span></div>
+        <div class="ac-signal">Speculative tasks actively firing — treating the symptom (slow tasks) instead of the cause (data skew).</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">StageFailureAnalyzer</span><span class="ac-cat cat-reliability">reliability</span></div>
+        <div class="ac-signal">Stage retried (attempt &gt; 0) with failure reason, or task failure rate &gt; 5% in a stage.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">MemoryPressureAnalyzer</span><span class="ac-cat cat-reliability">reliability</span></div>
+        <div class="ac-signal">GC &gt; 10% and disk spill &gt; 100 MB co-occurring in the same stage — the executor heap is genuinely undersized.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">StageParallelismAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">Stage tasks &lt; 50% of available executor cores on a stage &gt; 10s — most cores idle, wall time longer than necessary.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">LongStageAnalyzer</span><span class="ac-cat cat-reliability">reliability</span></div>
+        <div class="ac-signal">Stage duration &gt; 5× the median stage duration in its job — one stage serializes all downstream stages.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── CONFIGURATION ─────────────────────────────────────────────────────── -->
+<section id="configuration">
+  <div class="section-inner">
+    <h2>Configuration</h2>
+    <p class="section-sub">All settings are optional. No required configuration.</p>
+    <table class="config-table" style="margin-bottom:40px">
+      <thead><tr><th>Property</th><th>Default</th><th>Values</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>spark.sparklens.output</code></td><td class="def">off</td><td>off · text · json · html</td><td>Output format. <code>off</code> is silent unless <code>fail.on</code> is set.</td></tr>
+        <tr><td><code>spark.sparklens.report.path</code></td><td class="def">(stdout)</td><td>local path, hdfs://, s3://…</td><td>Write report to a file instead of stdout. Supports any Hadoop-compatible filesystem.</td></tr>
+        <tr><td><code>spark.sparklens.fail.on</code></td><td class="def">(none)</td><td>critical · warning · info</td><td>Throw <code>RuntimeException</code> at app end if issues at this severity or above are found.</td></tr>
+      </tbody>
+    </table>
+
+    <h3 style="font-size:18px;font-weight:700;margin-bottom:8px">Permanent cluster configuration</h3>
+    <p style="font-size:14px;color:#64748b;margin-bottom:16px">Add to <code>spark-defaults.conf</code> on every node — every job gets analyzed automatically, no per-job flags needed.</p>
+    <div class="code-block"><span class="cb-key">spark.extraListeners</span>=com.github.saadaouini.sparklens.SparkLensListener
+<span class="cb-key">spark.sparklens.output</span>=text
+<span class="cb-key">spark.sparklens.fail.on</span>=critical</div>
+  </div>
+</section>
+
+<!-- ── CI GATE ───────────────────────────────────────────────────────────── -->
+<section id="ci">
+  <div class="section-inner">
+    <h2>CI quality gate</h2>
+    <p class="section-sub">Fail the Spark job itself when critical issues are detected — no external tooling required.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+      <div>
+        <h3 style="font-size:15px;font-weight:700;margin-bottom:10px">Fail on critical</h3>
+        <div class="code-block" style="font-size:12px"><span class="cb-comment"># CI fails automatically — exit code non-zero</span>
+spark-submit \
+  <span class="cb-flag">--packages</span> <span class="cb-val">com.github.saadaouini:spark-lens_2.12:0.1.0</span> \
+  <span class="cb-flag">--conf</span> <span class="cb-val">spark.extraListeners=...SparkLensListener</span> \
+  <span class="cb-flag">--conf</span> <span class="cb-val">spark.sparklens.fail.on=critical</span> \
+  myJob.jar</div>
+      </div>
+      <div>
+        <h3 style="font-size:15px;font-weight:700;margin-bottom:10px">Save JSON report as CI artifact</h3>
+        <div class="code-block" style="font-size:12px"><span class="cb-comment"># Parse the JSON in a subsequent step</span>
+spark-submit \
+  <span class="cb-flag">--conf</span> <span class="cb-val">spark.sparklens.output=json</span> \
+  <span class="cb-flag">--conf</span> <span class="cb-val">spark.sparklens.report.path=/tmp/report.json</span> \
+  myJob.jar
+
+<span class="cb-comment"># health_score, issue_count, issues[].severity…</span></div>
+      </div>
+    </div>
+
+    <h3 style="font-size:18px;font-weight:700;margin:40px 0 8px">Health score</h3>
+    <p style="font-size:14px;color:#64748b;margin-bottom:24px">Deducted per issue, floored at 0. Per-category caps prevent a flood of config warnings from masking genuine criticals.</p>
+    <div class="score-cards">
+      <div class="score-card"><div class="sc-val c-ok">100</div><div class="sc-lbl">Perfect</div><div class="sc-desc">No issues detected</div></div>
+      <div class="score-card"><div class="sc-val c-crit">−25</div><div class="sc-lbl">per Critical</div><div class="sc-desc">Cap: −100</div></div>
+      <div class="score-card"><div class="sc-val c-warn">−10</div><div class="sc-lbl">per Warning</div><div class="sc-desc">Cap: −30</div></div>
+      <div class="score-card"><div class="sc-val c-info">−3</div><div class="sc-lbl">per Info</div><div class="sc-desc">Cap: −15</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── FOOTER ────────────────────────────────────────────────────────────── -->
+<footer>
+  <p style="margin-bottom:8px">
+    <a href="https://github.com/nidhal-saadaoui/spark-lens-listener">GitHub</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/nidhal-saadaoui/spark-lens-listener/blob/main/README.md">README</a>
+    &nbsp;·&nbsp;
+    Apache 2.0
+  </p>
+  <p style="font-size:12px">Built for Apache Spark 3.x · Scala 2.12 &amp; 2.13</p>
+</footer>
+
+</body>
+</html>
