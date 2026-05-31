@@ -86,17 +86,26 @@ jobs:
 
   # ── End-to-end integration test: demo job via PySpark ─────────────────────
   integration-test:
-    name: Integration Test (Spark 3.5.5)
+    name: Integration Test (Spark ${{ matrix.spark_version }})
     runs-on: ubuntu-latest
     needs: assembly
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - spark_version: "3.5.5"
+            java_version: "17"
+          - spark_version: "3.2.3"
+            java_version: "11"  # Spark 3.2.x supports Java 8/11/17; use 11 for stability
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up JDK ${{ matrix.java_version }}
         uses: actions/setup-java@v4
         with:
-          java-version: "17"
+          java-version: ${{ matrix.java_version }}
           distribution: temurin
 
       - name: Set up Python
@@ -105,7 +114,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install PySpark
-        run: pip install pyspark==3.5.5
+        run: pip install pyspark==${{ matrix.spark_version }}
 
       - name: Download assembly JAR
         uses: actions/download-artifact@v4
@@ -138,6 +147,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: spark-lens-report
+          name: spark-lens-report-${{ matrix.spark_version }}
           path: /tmp/spark-lens-report.txt
           retention-days: 7

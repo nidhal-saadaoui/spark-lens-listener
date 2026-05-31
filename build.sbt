@@ -47,7 +47,8 @@ lazy val root = (project in file("."))
       "-unchecked",
       "-Xfatal-warnings",
     ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
-      case Some((2, 12)) => Seq("-Ypartial-unification")
+      case Some((2, 12)) => Seq("-Ypartial-unification", "-target:jvm-1.8")
+      case Some((2, 13)) => Seq("-release", "8")
       case _             => Nil
     }),
 
