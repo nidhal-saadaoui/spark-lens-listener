@@ -96,8 +96,10 @@ jobs:
         include:
           - spark_version: "3.5.5"
             java_version: "17"
+            python_version: "3.11"
           - spark_version: "3.2.3"
-            java_version: "11"  # Spark 3.2.x supports Java 8/11/17; use 11 for stability
+            java_version: "11"
+            python_version: "3.9"  # PySpark 3.2.x bundles cloudpickle 1.x which predates Python 3.11 bytecode
 
     steps:
       - uses: actions/checkout@v4
@@ -111,7 +113,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python_version }}
 
       - name: Install PySpark
         run: pip install pyspark==${{ matrix.spark_version }}
