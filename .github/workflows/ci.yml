@@ -146,7 +146,11 @@ jobs:
           grep -q "Window Function Without PARTITION BY" /tmp/spark-lens-report.txt
           grep -q "Cartesian Product"                    /tmp/spark-lens-report.txt
           grep -q "Broadcast Join Disabled"              /tmp/spark-lens-report.txt
-          echo "All expected issues detected in report."
+          grep -q "Skew"                                 /tmp/spark-lens-report.txt
+          grep -q "Java Serializer"                      /tmp/spark-lens-report.txt
+          grep -q "Adaptive Query Execution"             /tmp/spark-lens-report.txt
+          grep -q "Driver-Side Aggregation"              /tmp/spark-lens-report.txt
+          echo "All 10 expected issues detected in report."
 
       - name: Upload report
         if: always()

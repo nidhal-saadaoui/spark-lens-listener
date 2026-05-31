@@ -41,8 +41,15 @@ case class StageData(
     case _                  => 0L
   }
 
-  // Prefer exact aggregates when available; fall back to summing the (possibly sampled)
-  // tasks list so that unit-test fixtures that set tasks directly continue to work.
+  // ── Computed metrics ────────────────────────────────────────────────────────
+  // When hasExactAggregates is true (set by SparkAppModelBuilder after real task events),
+  // the exactXxx fields hold precise totals computed from every task, regardless of the
+  // reservoir sample in `tasks`.  When false (unit-test fixtures that set `tasks` directly),
+  // the methods fall back to summing the tasks list.
+  //
+  // INVARIANT: every new computed method added here MUST follow the same
+  // `if (hasExactAggregates) exactXxx else tasks.map(...).sum` pattern so that
+  // both the production path and the test fixture path stay consistent.
   def totalGcTimeMs: Long =
     if (hasExactAggregates) exactGcTimeMs
     else tasks.map(_.metrics.jvmGcTimeMs).sum

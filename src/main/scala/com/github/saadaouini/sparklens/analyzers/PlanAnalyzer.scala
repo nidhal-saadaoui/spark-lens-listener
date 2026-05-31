@@ -74,7 +74,9 @@ object PlanAnalyzer extends Analyzer {
         )
       }
 
-      // fragile: "Statistics(sizeInBytes=" and "rowCount=" are explain-output strings, not node names
+      // fragile: "Statistics(sizeInBytes=" and "rowCount=" are Spark explain-output strings,
+      // not stable node names.  Validate this check whenever the Spark dependency in
+      // build.sbt is bumped — run a real FORMATTED plan dump and confirm the strings still appear.
       if (plan.contains("Statistics(sizeInBytes=") &&
           plan.contains("rowCount=") == false &&
           plan.contains("SortMergeJoin")) {

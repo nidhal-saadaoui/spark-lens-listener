@@ -83,5 +83,11 @@ df2 = spark.range(100).withColumn("id", F.col("id").cast("int")).withColumn("v",
 df1.crossJoin(df2).count()
 print("   cartesian job done")
 
+# ── 6. CollectLimit → DriverBottleneckAnalyzer (Info) ────────────────────────
+# limit(N).collect() inserts a CollectLimit node in the physical plan.
+print(">> Job 6: limit().collect() — CollectLimit in physical plan")
+spark.range(5_000).toDF("id").limit(500).collect()
+print("   collect-limit job done")
+
 print("\n=== jobs complete — spark-lens report follows ===\n")
 spark.stop()

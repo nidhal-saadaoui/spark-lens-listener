@@ -19,7 +19,14 @@ object SkewAnalyzer extends Analyzer {
       val taskCount = if (stage.exactTaskCount > 0) stage.exactTaskCount else stage.tasks.size
       if (taskCount < minTasks) Nil
       else {
-        val durations = stage.tasks.map(_.durationMs).sorted
+        // Use executorRunTimeMs (time actually spent on the executor) rather than wall-clock
+        // durationMs.  Wall-clock includes scheduling lag and shuffle-fetch stalls, so a stage
+        // where all tasks wait equally for a slow shuffle partner looks skewed even though every
+        // task does the same amount of work.  Filter out zero-valued entries (tasks killed before
+        // execution started).
+        val durations = stage.tasks.map(_.metrics.executorRunTimeMs).filter(_ > 0).sorted
+        if (durations.size < minTasks) Nil
+        else {
         val p50 = percentile(durations, 50)
         val p95 = percentile(durations, 95)
         if (p50 < MinP50Ms) Nil
@@ -61,7 +68,7 @@ object SkewAnalyzer extends Analyzer {
             val concPct    = fmtDouble(conc * 100, 0)
 
             val sigDesc =
-              s"p95 task duration (${fmtMs(p95)}) is ${ratioFmt}× the median (${fmtMs(p50)}). " +
+              s"p95 executor run time (${fmtMs(p95)}) is ${ratioFmt}× the median (${fmtMs(p50)}). " +
               s"The top 5% slowest tasks hold ${concPct}% of total stage time " +
               s"($stragglers straggler(s) out of $taskCount)."
 
@@ -128,6 +135,7 @@ object SkewAnalyzer extends Analyzer {
             ))
           }
         }
+        }   // close: if (durations.size < minTasks) Nil else
       }
     }
   }

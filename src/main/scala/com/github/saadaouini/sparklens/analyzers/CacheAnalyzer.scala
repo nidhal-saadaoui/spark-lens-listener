@@ -53,40 +53,78 @@ object CacheAnalyzer extends Analyzer {
 
     // ── DataFrame / SQL repeated-scan detection ───────────────────────────────
     // When users call df.cache() Spark inserts InMemoryRelation into the plan.
-    // If the same table appears in ≥ 3 SQL executions without InMemoryRelation,
+    // If the same table appears in ≥ N SQL executions without InMemoryRelation,
     // the user is re-reading it from source every time.
-    // Threshold 3 (not 2) avoids false positives for the common pattern of reading
-    // a table twice in one pipeline (e.g. count then aggregate).
+    // Default threshold 5: three reads is common in any multi-step pipeline
+    // (count → filter → join); five is a stronger signal of a reuse opportunity.
     val sqlIssues: Seq[Issue] = if (app.sqlExecutions.isEmpty) Nil else {
-      val FileScanRe = """FileScan \w+ ([\w.`/]+)\[""".r
+      val sqlMinExecCount = propLong(app, "spark.sparklens.cache.sql.minExecCount", 5L).toInt
+      val sqlMaxGbForWarn = propLong(app, "spark.sparklens.cache.sql.warnMaxGb",    5L)
+      val FileScanRe      = """FileScan \w+ ([\w.`/]+)\[""".r
 
       // If a table appears under InMemoryRelation in ANY execution, df.cache() was called
-      // on it somewhere — suppress that table globally across all executions.
+      // on it somewhere — suppress that table globally.
       val cachedTableNames: Set[String] = app.sqlExecutions.values
         .filter(_.physicalPlan.contains("InMemoryRelation"))
         .flatMap(sql => FileScanRe.findAllMatchIn(sql.physicalPlan).map(_.group(1)))
         .toSet
 
-      val tableCount = scala.collection.mutable.Map[String, Int]()
+      // Track which execution IDs scan each table so we can estimate data size.
+      val tableToExecIds = scala.collection.mutable.Map[String, List[Long]]()
       app.sqlExecutions.values.foreach { sql =>
         FileScanRe.findAllMatchIn(sql.physicalPlan)
           .map(_.group(1))
-          .toSet                                  // count each table once per execution
-          .filterNot(cachedTableNames.contains)   // skip tables that are cached anywhere
-          .foreach(t => tableCount(t) = tableCount.getOrElse(t, 0) + 1)
+          .toSet
+          .filterNot(cachedTableNames.contains)
+          .foreach { t =>
+            tableToExecIds(t) = sql.executionId :: tableToExecIds.getOrElse(t, Nil)
+          }
       }
 
-      tableCount.toSeq.collect {
-        case (table, count) if count >= 3 =>
+      // Estimate average bytes read per execution for a set of execution IDs.
+      // Correlates execution → jobs → stages → totalInputBytes.  Overcounts when
+      // a stage reads from multiple tables, but gives a useful order-of-magnitude guard.
+      def estimateAvgBytesPerExec(execIds: List[Long]): Long = {
+        if (execIds.isEmpty) return 0L
+        val stageBytes = for {
+          id    <- execIds
+          sql   <- app.sqlExecutions.get(id).toSeq
+          jobId <- sql.jobIds
+          job   <- app.jobs.get(jobId).toSeq
+          sid   <- job.stageIds
+          stage <- app.stages.get(sid).toSeq
+        } yield stage.totalInputBytes
+        if (stageBytes.isEmpty) 0L else stageBytes.sum / execIds.size
+      }
+
+      tableToExecIds.toSeq.collect {
+        case (table, execIds) if execIds.size >= sqlMinExecCount =>
+          val count    = execIds.size
+          val avgBytes = estimateAvgBytesPerExec(execIds)
+          val isLarge  = avgBytes > sqlMaxGbForWarn * GB
+          val severity = if (isLarge) Info else Warning
+          val rec      =
+            if (isLarge)
+              s"The estimated scan size is ${fmtBytes(avgBytes)}/execution. Caching this table " +
+              s"requires enough executor memory to hold the full dataset — only cache if it fits. " +
+              s"For large tables, prefer broadcast joins or bucketed tables instead."
+            else
+              "Cache the DataFrame before the first action and unpersist when done. " +
+              "Use persist(StorageLevel.MEMORY_AND_DISK) so the cache survives executor loss."
           Issue(
             id             = s"cache-sql-${table.hashCode.abs}",
-            severity       = Warning,
+            severity       = severity,
             category       = "cache",
             title          = s"Repeated Scan of '$table' Across $count SQL Executions Without Caching",
-            description    = s"The table '$table' is read from source in $count separate SQL executions. Each execution re-reads the full dataset from storage when the result could be cached in memory.",
-            recommendation = "Cache the DataFrame before the first action and unpersist when done.",
-            codeFix        = Some("val cached = df.cache()\ncached.count()  // materialise\n// ... reuse cached ...\ncached.unpersist()"),
-            metrics        = Map("execution_count" -> count.toString, "table" -> table),
+            description    = s"The table '$table' is read from source in $count separate SQL executions. Each execution re-reads the full dataset from storage when the result could be reused.",
+            recommendation = rec,
+            codeFix        = if (isLarge) None
+                             else Some("val cached = df.cache()\ncached.count()  // materialise\n// ... reuse cached ...\ncached.unpersist()"),
+            metrics        = Map(
+              "execution_count"    -> count.toString,
+              "table"              -> table,
+              "avg_bytes_per_exec" -> avgBytes.toString,
+            ),
           )
       }
     }

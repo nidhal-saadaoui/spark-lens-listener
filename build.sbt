@@ -25,6 +25,10 @@ lazy val root = (project in file("."))
     name := "spark-lens",
 
     // Spark is provided by the cluster — do not bundle it
+    // When bumping Spark version: validate PlanAnalyzer and JoinAnalyzer string matches
+    // against a real FORMATTED plan dump from the new version.  Fragile checks include
+    // the CBO stats string ("Statistics(sizeInBytes=") and the "\n\n(" tree/detail boundary.
+    // See src/test/scala/.../analyzers/PlanAnalyzerSpec.scala for the test plan format.
     libraryDependencies ++= Seq(
       "org.apache.spark" %% "spark-core" % "3.5.0" % "provided",
       "org.apache.spark" %% "spark-sql"  % "3.5.0" % "provided",

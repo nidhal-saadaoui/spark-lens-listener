@@ -263,6 +263,14 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
       exactTasksWithInputBytes  = agg.map(_.tasksWithInputBytes).getOrElse(0),
       exactTasksWithOutputBytes = agg.map(_.tasksWithOutputBytes).getOrElse(0),
     )
+
+    // Release raw accumulator memory. All data is now in stageInfo — holding it in
+    // both places doubles peak driver heap until build() is called.
+    stageTasks.remove(key)
+    stageAgg.remove(key)
+    stageExactTaskCount.remove(key)
+    stageRddNames.remove(key)
+    stageRddCachedNames.remove(key)
   }
 
   def onSqlExecutionStart(executionId: Long, description: String, physicalPlan: String, startTimeMs: Long): Unit = {

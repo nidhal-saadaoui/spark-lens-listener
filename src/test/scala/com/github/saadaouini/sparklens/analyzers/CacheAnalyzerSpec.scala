@@ -1,6 +1,6 @@
 package com.github.saadaouini.sparklens.analyzers
 
-import com.github.saadaouini.sparklens.model.Warning
+import com.github.saadaouini.sparklens.model.{Info, Warning}
 import AnalyzerFixtures._
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -100,34 +100,62 @@ class CacheAnalyzerSpec extends AnyFlatSpec with Matchers {
 
   // ── DataFrame / SQL repeated-scan detection ─────────────────────────────
 
-  it should "flag a table scanned in 3+ SQL executions without InMemoryRelation" in {
+  it should "flag a table scanned in 5+ SQL executions without InMemoryRelation" in {
     val plan = "FileScan parquet default.orders[id#1L,amount#2] ..."
-    val execs = (0 to 2).map(i => i.toLong -> sqlExec(id = i.toLong, plan = plan)).toMap
+    val execs = (0 to 4).map(i => i.toLong -> sqlExec(id = i.toLong, plan = plan)).toMap
     val issues = CacheAnalyzer.analyze(app(sqlExecs = execs))
     val cacheIssues = issues.filter(_.category == "cache")
     cacheIssues should have size 1
     cacheIssues.head.title should include("default.orders")
-    cacheIssues.head.metrics("execution_count") shouldBe "3"
+    cacheIssues.head.metrics("execution_count") shouldBe "5"
   }
 
-  it should "not flag a table scanned in only 2 SQL executions" in {
+  it should "not flag a table scanned in only 4 SQL executions (below default threshold)" in {
     val plan = "FileScan parquet default.orders[id#1L] ..."
-    val execs = (0 to 1).map(i => i.toLong -> sqlExec(id = i.toLong, plan = plan)).toMap
+    val execs = (0 to 3).map(i => i.toLong -> sqlExec(id = i.toLong, plan = plan)).toMap
     CacheAnalyzer.analyze(app(sqlExecs = execs)).filter(_.category == "cache") shouldBe empty
   }
 
+  it should "fire at a custom sql.minExecCount threshold" in {
+    val plan = "FileScan parquet default.events[id#1L] ..."
+    val execs = (0 to 2).map(i => i.toLong -> sqlExec(id = i.toLong, plan = plan)).toMap
+    val issues = CacheAnalyzer.analyze(app(
+      sqlExecs = execs,
+      props    = Map("spark.sparklens.cache.sql.minExecCount" -> "3"),
+    ))
+    issues.filter(_.id.startsWith("cache-sql")) should have size 1
+  }
+
   it should "not flag SQL executions that contain InMemoryRelation" in {
-    val cachedPlan = "InMemoryRelation [...]\n   +- FileScan parquet default.events[...]"
+    val cachedPlan   = "InMemoryRelation [...]\n   +- FileScan parquet default.events[...]"
     val uncachedPlan = "FileScan parquet default.events[...]"
-    val execs = Map(
-      0L -> sqlExec(id = 0L, plan = cachedPlan),
-      1L -> sqlExec(id = 1L, plan = uncachedPlan),
-      2L -> sqlExec(id = 2L, plan = uncachedPlan),
-      3L -> sqlExec(id = 3L, plan = uncachedPlan),
-    )
-    // execs 1,2,3 scan default.events but exec 0 has InMemoryRelation so
-    // those three are NOT flagged (the table IS cached somewhere in the app)
+    val execs = (0 to 5).map(i =>
+      i.toLong -> sqlExec(id = i.toLong, plan = if (i == 0) cachedPlan else uncachedPlan)
+    ).toMap
+    // exec 0 has InMemoryRelation → table is cached → all executions suppressed
     CacheAnalyzer.analyze(app(sqlExecs = execs)).filter(_.id.startsWith("cache-sql")) shouldBe empty
+  }
+
+  it should "downgrade SQL cache issue to Info for large estimated table sizes" in {
+    // Simulate large input bytes via stage correlation:
+    // SQL exec 0..4 each link to job 0, job 0 has stage 0, stage 0 has exactInputBytes = 10 GB
+    val plan = "FileScan parquet default.big_table[id#1L] ..."
+    val bigStage = stage(stageId = 0).copy(
+      hasExactAggregates = true,
+      exactInputBytes    = 10L * 1024L * 1024L * 1024L,  // 10 GB
+    )
+    val bigJob   = job(jobId = 0, stageIds = Seq(0))
+    val execs    = (0 to 4).map(i =>
+      i.toLong -> sqlExec(id = i.toLong, plan = plan, jobIds = Seq(0))
+    ).toMap
+    val issues = CacheAnalyzer.analyze(app(
+      stages   = Map(0 -> bigStage),
+      jobs     = Map(0 -> bigJob),
+      sqlExecs = execs,
+    ))
+    val sqlIssues = issues.filter(_.id.startsWith("cache-sql"))
+    sqlIssues should have size 1
+    sqlIssues.head.severity shouldBe Info   // downgraded from Warning due to large size
   }
 
   it should "flag the RDD name in the issue title" in {

@@ -199,6 +199,8 @@ All analyzer thresholds can be overridden per-job via Spark conf:
 | `spark.sparklens.driver.largeResultCritMb` | `500` | Result size (MB) sent to driver that escalates to Critical |
 | `spark.sparklens.join.largeBroadcastGb` | `1` | Broadcast threshold (GB) above which oversized-broadcast Warning fires |
 | `spark.sparklens.join.excessiveShuffleCount` | `4` | Number of shuffle exchanges that triggers Warning |
+| `spark.sparklens.cache.sql.minExecCount` | `5` | Minimum SQL executions scanning the same table before repeated-scan Warning fires |
+| `spark.sparklens.cache.sql.warnMaxGb` | `5` | Estimated table size (GB) above which repeated-scan is downgraded to Info (table may be too large to cache) |
 | `spark.sparklens.preemption.killedTaskRateWarn` | `0.05` | Fraction of killed tasks per stage for Warning |
 | `spark.sparklens.stageFailure.failedTaskRateWarn` | `0.05` | Fraction of failed tasks per stage for Warning |
 | `spark.sparklens.memoryPressure.gcFraction` | `0.10` | GC fraction co-required with spill for memory-pressure Critical |
