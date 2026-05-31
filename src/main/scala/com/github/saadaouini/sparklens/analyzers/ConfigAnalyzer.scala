@@ -32,8 +32,9 @@ object ConfigAnalyzer extends Analyzer {
         severity       = Warning,
         category       = "config",
         title          = "Java Serializer in Use — Switch to Kryo",
-        description    = "Java serialization is 10× slower than Kryo and produces much larger objects. It is the default but should not be used in production.",
-        recommendation = "Switch to Kryo. Register your domain classes for maximum performance.",
+        description    = "Java serialization is 10× slower than Kryo and produces 2–10× larger byte arrays. Every shuffle write, broadcast variable, and RDD persist pays this cost — it shows up as longer task duration and higher GC pressure.",
+        recommendation = "Switch to Kryo. Register your domain classes for maximum performance (unregistered classes fall back to class name string which wastes space).",
+        codeFix        = Some("spark.conf.set(\"spark.serializer\", \"org.apache.spark.serializer.KryoSerializer\")\n// optionally: spark.conf.set(\"spark.kryo.registrationRequired\", \"false\")"),
         configFix      = Some("spark.serializer=org.apache.spark.serializer.KryoSerializer"),
       )
     }

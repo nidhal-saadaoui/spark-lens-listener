@@ -21,8 +21,8 @@ object CpuEfficiencyAnalyzer extends Analyzer {
             severity       = Info,
             category       = "io",
             title          = s"Low CPU Utilization in Stage ${stage.stageId} — $pct CPU",
-            description    = s"Executors spent only $pct of their run time doing actual CPU work in stage ${stage.stageId} (${stage.name}). The rest was I/O wait, shuffle, or JVM overhead.",
-            recommendation = "Check if the stage is I/O-bound (shuffle read/write dominating). Increase parallelism or use faster storage. For UDFs, consider vectorized UDFs with Arrow.",
+            description    = s"Executors spent only $pct of their run time on CPU computation in stage ${stage.stageId} (${stage.name}) — the rest was I/O wait, shuffle network, or JVM overhead. You are paying for cores that are mostly idle.",
+            recommendation = "Look at the stage metrics to identify the bottleneck: if shuffleReadBytes dominate, the stage is network-bound — reduce shuffles or enable compression. If inputBytes dominate, the source files are too small — compact them. For Python UDFs, switch to pandas UDFs (Arrow-based) which process batches and hand control back to the JVM quickly.",
             affectedStages = Seq(stage.stageId),
             metrics        = Map(
               "cpu_fraction"  -> f"$cpuFraction%.3f",

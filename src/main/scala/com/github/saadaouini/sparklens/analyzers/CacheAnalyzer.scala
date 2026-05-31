@@ -30,15 +30,18 @@ object CacheAnalyzer extends Analyzer {
 
     rddToJobs.toSeq.collect {
       case (rddName, jobs) if jobs.size >= 2 =>
+        val sortedJobs = jobs.toSeq.sorted
+        val jobNames   = sortedJobs.flatMap(id => app.jobs.get(id).map(j => s"'${j.name.take(60)}'"))
+                                   .take(3).mkString(", ")
         Issue(
           id             = s"cache-${rddName.hashCode.abs}",
           severity       = Warning,
           category       = "cache",
           title          = s"Repeated Scan of '$rddName' Across ${jobs.size} Jobs Without Caching",
-          description    = s"The dataset '$rddName' is read from scratch in ${jobs.size} separate jobs. Each read re-executes the full lineage.",
-          recommendation = "Call .cache() or .persist() on the DataFrame/RDD before the first action, then .unpersist() when done.",
-          codeFix        = Some("df.cache()  // before the first .count()/.show()/etc."),
-          affectedJobs   = jobs.toSeq.sorted,
+          description    = s"The dataset '$rddName' is read from scratch in ${jobs.size} jobs ($jobNames). Each job re-executes the full upstream lineage — reading source files, applying filters, and transforming data — when the result could be reused.",
+          recommendation = "Call .cache() or .persist(StorageLevel.MEMORY_AND_DISK) before the first action, then .unpersist() when done. Use MEMORY_AND_DISK instead of MEMORY_ONLY to avoid re-computation if an executor is lost.",
+          codeFix        = Some("val cached = df.persist(StorageLevel.MEMORY_AND_DISK)\ncached.count()  // materialise\n// ... use cached for subsequent jobs ...\ncached.unpersist()"),
+          affectedJobs   = sortedJobs,
           metrics        = Map("job_count" -> jobs.size.toString, "rdd_name" -> rddName),
         )
     }

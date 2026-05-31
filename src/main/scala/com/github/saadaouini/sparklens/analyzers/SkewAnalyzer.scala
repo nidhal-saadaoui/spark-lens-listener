@@ -49,9 +49,17 @@ object SkewAnalyzer extends Analyzer {
             severity       = severity,
             category       = "skew",
             title          = s"${if (severity == Critical) "Severe Task" else "Task"} Skew in Stage ${stage.stageId} (${stage.name}) — ${f"$ratio%.1f"}× skew",
-            description    = s"$sigDesc One or more partitions hold disproportionate data.",
-            recommendation = "Use AQE skewJoin (spark.sql.adaptive.skewJoin.enabled=true). For groupBy hot keys, apply key salting before aggregation.",
+            description    = s"$sigDesc One or more partitions hold disproportionate data. The slowest task becomes a straggler that blocks the entire stage — all other tasks finish and sit idle waiting for it.",
+            recommendation = "Enable AQE skewJoin to split oversized partitions automatically. For hot-key groupBy, apply two-phase key salting: add a random suffix before the first aggregation, then strip it and re-aggregate.",
             configFix      = Some("spark.sql.adaptive.skewJoin.enabled=true"),
+            codeFix        = Some(
+              "// Phase 1: salt the key to spread hot partitions\n" +
+              "df.withColumn(\"k\", concat(col(\"key\"), lit(\"_\"), (rand()*10).cast(\"int\")))\n" +
+              "  .groupBy(\"k\").agg(sum(\"value\").as(\"sub\"))\n" +
+              "// Phase 2: strip salt and final aggregate\n" +
+              "  .withColumn(\"key\", regexp_replace(col(\"k\"), \"_\\\\d+$\", \"\"))\n" +
+              "  .groupBy(\"key\").agg(sum(\"sub\"))"
+            ),
             affectedStages = Seq(stage.stageId),
             metrics        = Map(
               "skew_signal"   -> signal,
