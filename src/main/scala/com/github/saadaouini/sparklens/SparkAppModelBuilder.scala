@@ -6,11 +6,11 @@ import org.apache.spark.scheduler._
 import scala.collection.mutable
 
 /** Accumulates Spark listener events and builds a SparkAppModel at application end. */
-private[sparklens] class SparkAppModelBuilder {
+private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
 
   private var appId        = "unknown"
   private var appName      = "unknown"
-  private var sparkVersion = ""
+  private var sparkVersion = runtimeVersion   // seeded from SPARK_VERSION constant
   private var startTimeMs  = 0L
 
   private val sparkProperties = mutable.Map[String, String]()

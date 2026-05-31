@@ -1,7 +1,7 @@
 package com.github.saadaouini.sparklens
 
 import com.github.saadaouini.sparklens.report._
-import org.apache.spark.SparkConf
+import org.apache.spark.{SPARK_VERSION, SparkConf}
 import org.apache.spark.scheduler._
 import org.apache.spark.sql.execution.ui.{SparkListenerSQLExecutionEnd, SparkListenerSQLExecutionStart}
 
@@ -37,7 +37,7 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
   private val reportPath = conf.getOption("spark.sparklens.report.path")
   private val failOn     = conf.getOption("spark.sparklens.fail.on").map(_.toLowerCase)
 
-  private val builder = new SparkAppModelBuilder()
+  private val builder = new SparkAppModelBuilder(SPARK_VERSION)
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 

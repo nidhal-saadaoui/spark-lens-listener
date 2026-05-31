@@ -54,8 +54,10 @@ object JoinAnalyzer extends Analyzer {
         }
       }
 
-      // Many shuffle exchanges in one job (over-complex plan)
-      val shuffleCount = plan.sliding("Exchange".length).count(_ == "Exchange")
+      // Many shuffle exchanges in one job — BroadcastExchange is not a shuffle, exclude it
+      val allExchanges   = plan.sliding("Exchange".length).count(_ == "Exchange")
+      val broadcastCount = plan.sliding("BroadcastExchange".length).count(_ == "BroadcastExchange")
+      val shuffleCount   = allExchanges - broadcastCount
       if (shuffleCount >= ExcessiveShuffleCount) {
         issues += Issue(
           id             = s"join-excessive-shuffle-${sql.executionId}",

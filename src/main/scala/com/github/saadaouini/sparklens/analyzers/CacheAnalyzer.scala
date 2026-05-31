@@ -4,6 +4,16 @@ import com.github.saadaouini.sparklens.model._
 
 object CacheAnalyzer extends Analyzer {
 
+  // Spark-internal RDD class names that are infrastructure, not user datasets
+  private val InternalPrefixes = Set(
+    "Map", "Parallel", "Shuffled", "HadoopRDD", "FileScan", "SQLExecution",
+    "WholeStage", "Exchange", "Filter", "Project", "Scan", "Union", "Coalesced",
+    "Zipped",
+  )
+
+  private def isInternal(name: String): Boolean =
+    InternalPrefixes.exists(name.startsWith)
+
   def analyze(app: SparkAppModel): Seq[Issue] = {
     // Map each RDD name → set of job IDs that scanned it
     val rddToJobs = scala.collection.mutable.Map[String, Set[Int]]()
@@ -13,7 +23,7 @@ object CacheAnalyzer extends Analyzer {
       stageId      <- job.stageIds
       stage        <- app.stages.get(stageId)
       rddName      <- stage.rddNames
-      if rddName.nonEmpty && !rddName.startsWith("Map")  // skip internal shuffle/map names
+      if rddName.nonEmpty && !isInternal(rddName)
     } {
       rddToJobs(rddName) = rddToJobs.getOrElse(rddName, Set.empty) + jobId
     }
