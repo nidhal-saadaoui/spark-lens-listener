@@ -130,7 +130,7 @@ jobs:
         run: |
           cat /tmp/spark-lens-report.txt
           grep -q "Health:" /tmp/spark-lens-report.txt
-          grep -q "Skew in Stage" /tmp/spark-lens-report.txt
+          grep -q "Excessive Shuffles" /tmp/spark-lens-report.txt
           grep -q "Repeated Scan" /tmp/spark-lens-report.txt
           echo "All expected issues detected in report."
 
