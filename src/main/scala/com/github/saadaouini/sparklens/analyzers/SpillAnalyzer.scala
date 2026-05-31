@@ -3,16 +3,16 @@ package com.github.saadaouini.sparklens.analyzers
 import com.github.saadaouini.sparklens.model._
 
 object SpillAnalyzer extends Analyzer {
-  private val WarnDiskBytes = 100L * MB
-  private val CritDiskBytes = GB
 
-  def analyze(app: SparkAppModel): Seq[Issue] =
+  def analyze(app: SparkAppModel): Seq[Issue] = {
+    val warnDiskBytes = propLong(app, "spark.sparklens.spill.warnDiskMb",  100L) * MB
+    val critDiskBytes = propLong(app, "spark.sparklens.spill.critDiskMb", 1024L) * MB
     app.stages.values.toSeq.flatMap { stage =>
       val disk   = stage.totalDiskSpillBytes
       val memory = stage.totalMemorySpillBytes
-      if (disk < WarnDiskBytes && memory == 0) Nil
+      if (disk < warnDiskBytes && memory == 0) Nil
       else {
-        val severity = if (disk >= CritDiskBytes) Critical else Warning
+        val severity = if (disk >= critDiskBytes) Critical else Warning
         Seq(Issue(
           id             = s"spill-${stage.stageId}",
           severity       = severity,
@@ -26,4 +26,5 @@ object SpillAnalyzer extends Analyzer {
         ))
       }
     }
+  }
 }

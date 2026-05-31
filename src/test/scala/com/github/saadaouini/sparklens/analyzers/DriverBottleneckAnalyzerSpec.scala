@@ -68,4 +68,11 @@ class DriverBottleneckAnalyzerSpec extends AnyFlatSpec with Matchers {
     val issues = DriverBottleneckAnalyzer.analyze(app(stages = Map(3 -> s)))
     issues.find(_.id.startsWith("driver-result")).get.affectedStages shouldBe Seq(3)
   }
+
+  it should "not fire when result size is below a custom largeResultWarnMb" in {
+    // 100 MB total — above default 50 MB but below custom 200 MB
+    val tasks = (0 until 5).map(i => task(id = i, resultSize = 20 * MB))
+    val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.driver.largeResultWarnMb" -> "200"))
+    DriverBottleneckAnalyzer.analyze(a).filter(_.id.startsWith("driver-result")) shouldBe empty
+  }
 }

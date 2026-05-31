@@ -3,11 +3,11 @@ package com.github.saadaouini.sparklens.analyzers
 import com.github.saadaouini.sparklens.model._
 
 object JoinAnalyzer extends Analyzer {
-  private val BroadcastThreshold    = 10L * MB
-  private val LargeBroadcastWarn    = 1L  * GB
-  private val ExcessiveShuffleCount = 4
+  private val BroadcastThreshold = 10L * MB
 
   def analyze(app: SparkAppModel): Seq[Issue] = {
+    val largeBroadcastWarn    = propLong(app, "spark.sparklens.join.largeBroadcastGb",      1L) * GB
+    val excessiveShuffleCount = propLong(app, "spark.sparklens.join.excessiveShuffleCount", 4L).toInt
     val issues = scala.collection.mutable.ArrayBuffer[Issue]()
 
     app.sqlExecutions.values.foreach { sql =>
@@ -40,7 +40,7 @@ object JoinAnalyzer extends Analyzer {
         val broadcastThreshold = app.prop("spark.sql.autoBroadcastJoinThreshold")
           .map(s => scala.util.Try(s.toLong).getOrElse(10L * MB)).getOrElse(10L * MB)
 
-        if (broadcastThreshold >= LargeBroadcastWarn) {
+        if (broadcastThreshold >= largeBroadcastWarn) {
           issues += Issue(
             id             = s"join-large-broadcast-${sql.executionId}",
             severity       = Warning,
@@ -58,7 +58,7 @@ object JoinAnalyzer extends Analyzer {
       val allExchanges   = plan.sliding("Exchange".length).count(_ == "Exchange")
       val broadcastCount = plan.sliding("BroadcastExchange".length).count(_ == "BroadcastExchange")
       val shuffleCount   = allExchanges - broadcastCount
-      if (shuffleCount >= ExcessiveShuffleCount) {
+      if (shuffleCount >= excessiveShuffleCount) {
         issues += Issue(
           id             = s"join-excessive-shuffle-${sql.executionId}",
           severity       = Warning,

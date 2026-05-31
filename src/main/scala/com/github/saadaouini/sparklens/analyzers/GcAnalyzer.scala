@@ -3,21 +3,21 @@ package com.github.saadaouini.sparklens.analyzers
 import com.github.saadaouini.sparklens.model._
 
 object GcAnalyzer extends Analyzer {
-  private val WarnFraction = 0.10
-  private val CritFraction = 0.20
   private val MinRunTimeMs = 10000L
 
-  def analyze(app: SparkAppModel): Seq[Issue] =
+  def analyze(app: SparkAppModel): Seq[Issue] = {
+    val warnFraction = propDouble(app, "spark.sparklens.gc.warnFraction", 0.10)
+    val critFraction = propDouble(app, "spark.sparklens.gc.critFraction", 0.20)
     app.stages.values.toSeq.flatMap { stage =>
       val runTime = stage.totalExecutorRunTimeMs
       val gcTime  = stage.totalGcTimeMs
       if (runTime < MinRunTimeMs || gcTime == 0) Nil
       else {
         val fraction = gcTime.toDouble / runTime
-        if (fraction < WarnFraction) Nil
+        if (fraction < warnFraction) Nil
         else {
           val pct      = s"${fmtDouble(fraction * 100, 0)}%"
-          val severity = if (fraction >= CritFraction) Critical else Warning
+          val severity = if (fraction >= critFraction) Critical else Warning
           Seq(Issue(
             id             = s"gc-${stage.stageId}",
             severity       = severity,
@@ -32,4 +32,5 @@ object GcAnalyzer extends Analyzer {
         }
       }
     }
+  }
 }

@@ -3,11 +3,11 @@ package com.github.saadaouini.sparklens.analyzers
 import com.github.saadaouini.sparklens.model._
 
 object MemoryPressureAnalyzer extends Analyzer {
-  private val GcFractionThreshold   = 0.10
-  private val SpillBytesThreshold   = 100L * MB
-  private val MinRunTimeMs          = 10000L
+  private val MinRunTimeMs = 10000L
 
-  def analyze(app: SparkAppModel): Seq[Issue] =
+  def analyze(app: SparkAppModel): Seq[Issue] = {
+    val gcFractionThreshold = propDouble(app, "spark.sparklens.memoryPressure.gcFraction", 0.10)
+    val spillBytesThreshold = propLong(app,   "spark.sparklens.memoryPressure.spillMb",   100L) * MB
     app.stages.values.toSeq.flatMap { stage =>
       val runTime = stage.totalExecutorRunTimeMs
       val gcTime  = stage.totalGcTimeMs
@@ -16,8 +16,8 @@ object MemoryPressureAnalyzer extends Analyzer {
       if (runTime < MinRunTimeMs) Nil
       else {
         val gcFraction = if (runTime > 0) gcTime.toDouble / runTime else 0.0
-        val hasGc      = gcFraction >= GcFractionThreshold
-        val hasSpill   = spill >= SpillBytesThreshold
+        val hasGc      = gcFraction >= gcFractionThreshold
+        val hasSpill   = spill >= spillBytesThreshold
 
         if (hasGc && hasSpill) {
           val gcPct = s"${fmtDouble(gcFraction * 100, 0)}%"
@@ -38,4 +38,5 @@ object MemoryPressureAnalyzer extends Analyzer {
         } else Nil
       }
     }
+  }
 }

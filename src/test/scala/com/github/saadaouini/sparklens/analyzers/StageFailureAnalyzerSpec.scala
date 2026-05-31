@@ -85,4 +85,11 @@ class StageFailureAnalyzerSpec extends AnyFlatSpec with Matchers {
     issues.exists(_.id == "task-failure-0") shouldBe true
     issues.exists(_.id == "task-failure-1") shouldBe true
   }
+
+  it should "not fire when failure rate is below a custom failedTaskRateWarn" in {
+    // 7% failure rate — above default 5% but below custom 20%
+    val tasks = (0 until 100).map(i => task(id = i, failed = i < 7))
+    val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.stageFailure.failedTaskRateWarn" -> "0.20"))
+    StageFailureAnalyzer.analyze(a).exists(_.id.startsWith("task-failure")) shouldBe false
+  }
 }

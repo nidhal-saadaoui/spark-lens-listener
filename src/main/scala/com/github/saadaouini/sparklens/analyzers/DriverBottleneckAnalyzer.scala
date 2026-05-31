@@ -3,17 +3,17 @@ package com.github.saadaouini.sparklens.analyzers
 import com.github.saadaouini.sparklens.model._
 
 object DriverBottleneckAnalyzer extends Analyzer {
-  private val LargeResultWarnBytes = 50L * MB
-  private val LargeResultCritBytes = 500L * MB
 
   def analyze(app: SparkAppModel): Seq[Issue] = {
+    val largeResultWarnBytes = propLong(app, "spark.sparklens.driver.largeResultWarnMb",  50L) * MB
+    val largeResultCritBytes = propLong(app, "spark.sparklens.driver.largeResultCritMb", 500L) * MB
     val issues = scala.collection.mutable.ArrayBuffer[Issue]()
 
     // Large result sizes (collect() back to driver)
     app.stages.values.foreach { stage =>
       val resultSize = stage.totalResultSize
-      if (resultSize >= LargeResultWarnBytes) {
-        val severity = if (resultSize >= LargeResultCritBytes) Critical else Warning
+      if (resultSize >= largeResultWarnBytes) {
+        val severity = if (resultSize >= largeResultCritBytes) Critical else Warning
         issues += Issue(
           id             = s"driver-result-${stage.stageId}",
           severity       = severity,

@@ -3,10 +3,10 @@ package com.github.saadaouini.sparklens.analyzers
 import com.github.saadaouini.sparklens.model._
 
 object ShuffleLocalityAnalyzer extends Analyzer {
-  private val RemoteRatioWarn = 0.70
   private val MinShuffleBytes = 100L * MB
 
-  def analyze(app: SparkAppModel): Seq[Issue] =
+  def analyze(app: SparkAppModel): Seq[Issue] = {
+    val remoteRatioWarn = propDouble(app, "spark.sparklens.shuffleLocality.remoteRatioWarn", 0.70)
     app.stages.values.toSeq.flatMap { stage =>
       val remote = stage.totalShuffleRemoteBytes
       val local  = stage.totalShuffleLocalBytes
@@ -14,7 +14,7 @@ object ShuffleLocalityAnalyzer extends Analyzer {
       if (total < MinShuffleBytes) Nil
       else {
         val remoteRatio = remote.toDouble / total
-        if (remoteRatio < RemoteRatioWarn) Nil
+        if (remoteRatio < remoteRatioWarn) Nil
         else Seq(Issue(
           id             = s"shuffle-locality-${stage.stageId}",
           severity       = Warning,
@@ -37,4 +37,5 @@ object ShuffleLocalityAnalyzer extends Analyzer {
         ))
       }
     }
+  }
 }

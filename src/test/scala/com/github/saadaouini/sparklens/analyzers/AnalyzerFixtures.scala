@@ -16,6 +16,7 @@ object AnalyzerFixtures {
     localShuffleBytes:  Long    = 0L,
     shuffleBytesWritten:Long    = 0L,
     inputBytes:         Long    = 0L,
+    outputBytes:        Long    = 0L,
     resultSize:         Long    = 0L,
     failed:             Boolean = false,
     killed:             Boolean = false,
@@ -47,7 +48,7 @@ object AnalyzerFixtures {
       shuffleLocalBytesRead  = localShuffleBytes,
       shuffleBytesWritten    = shuffleBytesWritten,
       inputBytesRead         = inputBytes,
-      outputBytesWritten     = 0L,
+      outputBytesWritten     = outputBytes,
       resultSize             = resultSize,
     ),
   )

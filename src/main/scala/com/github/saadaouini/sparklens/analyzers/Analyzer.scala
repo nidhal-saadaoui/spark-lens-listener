@@ -47,4 +47,10 @@ trait Analyzer {
     else if (ms >= 1000)  s"${fmtDouble(ms.toDouble / 1000, 1)}s"
     else s"${ms}ms"
   }
+
+  protected def propLong(app: SparkAppModel, key: String, default: Long): Long =
+    app.prop(key).flatMap(s => scala.util.Try(s.toLong).toOption).getOrElse(default)
+
+  protected def propDouble(app: SparkAppModel, key: String, default: Double): Double =
+    app.prop(key).flatMap(s => scala.util.Try(s.toDouble).toOption).getOrElse(default)
 }

@@ -76,4 +76,22 @@ class SkewAnalyzerSpec extends AnyFlatSpec with Matchers {
     issues should have size 1
     issues.head.affectedStages should contain(0)
   }
+
+  it should "not fire when p95 ratio is below a custom warnP95Ratio" in {
+    // 100 tasks: 95 at 1000ms, 5 at 4000ms
+    // p95/p50 ratio ~4× — above default 3.0 but below custom 5.0
+    // concentration: top5% (5 tasks at 4000ms = 20000ms) / total (115000ms) = 17.4% < ConcWarn 25%
+    val base  = (0 until 95).map(i => task(id = i, durationMs = 1000L))
+    val strag = (95 until 100).map(i => task(id = i, durationMs = 4000L))
+    val tasks = base ++ strag
+    val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.skew.warnP95Ratio" -> "5.0"))
+    SkewAnalyzer.analyze(a) shouldBe empty
+  }
+
+  it should "respect a custom minTasks threshold" in {
+    // Only 5 tasks — below default minTasks=10 but above custom minTasks=3
+    val skewed = Seq(task(1000L), task(1000L), task(1000L), task(1000L), task(20000L))
+    val a = app(stages = Map(0 -> stage(tasks = skewed)), props = Map("spark.sparklens.skew.minTasks" -> "3"))
+    SkewAnalyzer.analyze(a) should not be empty
+  }
 }

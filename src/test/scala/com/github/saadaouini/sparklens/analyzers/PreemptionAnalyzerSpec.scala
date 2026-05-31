@@ -73,4 +73,11 @@ class PreemptionAnalyzerSpec extends AnyFlatSpec with Matchers {
     val issues = PreemptionAnalyzer.analyze(app(stages = Map(0 -> s0)))
     issues.exists(_.id.startsWith("preemption-killed")) shouldBe false
   }
+
+  it should "not fire when kill rate is below a custom killedTaskRateWarn" in {
+    // 7% kill rate — above default 5% but below custom 20%
+    val tasks = (0 until 100).map(i => task(id = i, killed = i < 7))
+    val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.preemption.killedTaskRateWarn" -> "0.20"))
+    PreemptionAnalyzer.analyze(a).exists(_.id.startsWith("preemption-killed")) shouldBe false
+  }
 }

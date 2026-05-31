@@ -28,4 +28,11 @@ class ShuffleLocalityAnalyzerSpec extends AnyFlatSpec with Matchers {
     issues should have size 1
     issues.head.metrics("remote_ratio").toDouble should be > 0.70
   }
+
+  it should "not fire when remote ratio is below a custom remoteRatioWarn" in {
+    // remote ratio ~75% — above default 70% but below custom 90%
+    val tasks = (1 to 5).map(_ => task(remoteShuffleBytes = 150L * MB, localShuffleBytes = 50L * MB))
+    val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.shuffleLocality.remoteRatioWarn" -> "0.90"))
+    ShuffleLocalityAnalyzer.analyze(a) shouldBe empty
+  }
 }

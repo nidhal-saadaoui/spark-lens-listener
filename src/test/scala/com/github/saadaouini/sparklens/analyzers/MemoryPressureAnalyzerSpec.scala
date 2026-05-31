@@ -64,4 +64,12 @@ class MemoryPressureAnalyzerSpec extends AnyFlatSpec with Matchers {
     val issues = MemoryPressureAnalyzer.analyze(app(stages = Map(2 -> stage(stageId = 2, tasks = tasks))))
     issues.head.affectedStages shouldBe Seq(2)
   }
+
+  it should "not fire when spill is below a custom spillMb threshold" in {
+    // 5 tasks × 30MB = 150MB total spill + 20% GC — fires at default 100MB threshold
+    // with custom 200MB threshold → 150MB < 200MB → no issue
+    val tasks = (0 until 5).map(i => task(id = i, executorRunTimeMs = 10000L, gcMs = 2000L, diskSpill = 30 * MB))
+    val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.memoryPressure.spillMb" -> "200"))
+    MemoryPressureAnalyzer.analyze(a) shouldBe empty
+  }
 }

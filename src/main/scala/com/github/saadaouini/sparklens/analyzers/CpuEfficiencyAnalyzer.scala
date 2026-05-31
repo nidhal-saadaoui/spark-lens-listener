@@ -3,17 +3,17 @@ package com.github.saadaouini.sparklens.analyzers
 import com.github.saadaouini.sparklens.model._
 
 object CpuEfficiencyAnalyzer extends Analyzer {
-  private val LowCpuFraction  = 0.20
-  private val MinRunTimeMs    = 30000L
+  private val MinRunTimeMs = 30000L
 
-  def analyze(app: SparkAppModel): Seq[Issue] =
+  def analyze(app: SparkAppModel): Seq[Issue] = {
+    val lowCpuFraction = propDouble(app, "spark.sparklens.cpu.lowFraction", 0.20)
     app.stages.values.toSeq.flatMap { stage =>
       val runTimeMs  = stage.totalExecutorRunTimeMs
       val cpuTimeNs  = stage.tasks.map(_.metrics.executorCpuTimeNs).sum
       if (runTimeMs < MinRunTimeMs || cpuTimeNs == 0) Nil
       else {
         val cpuFraction = (cpuTimeNs / 1000000.0) / runTimeMs  // ns → ms
-        if (cpuFraction >= LowCpuFraction) Nil
+        if (cpuFraction >= lowCpuFraction) Nil
         else {
           val pct = s"${fmtDouble(cpuFraction * 100, 0)}%"
           Seq(Issue(
@@ -33,4 +33,5 @@ object CpuEfficiencyAnalyzer extends Analyzer {
         }
       }
     }
+  }
 }

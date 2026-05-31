@@ -2,7 +2,7 @@ package com.github.saadaouini.sparklens.report
 
 import com.github.saadaouini.sparklens.model.{Issue, SparkAppModel}
 
-import java.io.{FileOutputStream, OutputStreamWriter}
+import java.io.{FileOutputStream, OutputStream, OutputStreamWriter}
 import java.nio.charset.StandardCharsets
 
 trait Reporter {
@@ -20,7 +20,19 @@ trait Reporter {
   protected def writeOrPrint(content: String, path: Option[String]): Unit =
     path match {
       case Some(p) =>
-        val out = new OutputStreamWriter(new FileOutputStream(p), StandardCharsets.UTF_8)
+        val stream: OutputStream =
+          if (p.contains("://")) {
+            // Remote path (hdfs://, s3://, gs://, …) — delegate to Hadoop FileSystem.
+            // hadoop-client is a transitive provided dep of spark-core; it is always
+            // present at runtime on any Spark cluster.
+            val hadoopPath = new org.apache.hadoop.fs.Path(p)
+            val fs = org.apache.hadoop.fs.FileSystem.get(
+              hadoopPath.toUri, new org.apache.hadoop.conf.Configuration())
+            fs.create(hadoopPath, /* overwrite= */ true)
+          } else {
+            new FileOutputStream(p)
+          }
+        val out = new OutputStreamWriter(stream, StandardCharsets.UTF_8)
         try { out.write(content) } finally { out.close() }
       case None =>
         print(content)

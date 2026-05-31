@@ -25,5 +25,6 @@ case class StageData(
   def totalInputBytes: Long         = tasks.map(_.metrics.inputBytesRead).sum
   def totalShuffleRemoteBytes: Long = tasks.map(_.metrics.shuffleRemoteBytesRead).sum
   def totalShuffleLocalBytes: Long  = tasks.map(_.metrics.shuffleLocalBytesRead).sum
-  def totalResultSize: Long         = tasks.map(_.metrics.resultSize).sum
+  def totalOutputBytes: Long         = tasks.map(_.metrics.outputBytesWritten).sum
+  def totalResultSize: Long          = tasks.map(_.metrics.resultSize).sum
 }

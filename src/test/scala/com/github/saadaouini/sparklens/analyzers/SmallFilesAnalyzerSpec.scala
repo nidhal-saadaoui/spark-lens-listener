@@ -60,4 +60,11 @@ class SmallFilesAnalyzerSpec extends AnyFlatSpec with Matchers {
                 (4 until 10).map(i => task(id = i, inputBytes = 200 * MB))
     SmallFilesAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks)))) shouldBe empty
   }
+
+  it should "not flag when avg bytes per task is above a custom targetMb" in {
+    // avg ~64 MB — below default 128 MB but above custom 32 MB
+    val tasks = (0 until 10).map(i => task(id = i, inputBytes = 64 * MB))
+    val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.smallFiles.targetMb" -> "32"))
+    SmallFilesAnalyzer.analyze(a) shouldBe empty
+  }
 }

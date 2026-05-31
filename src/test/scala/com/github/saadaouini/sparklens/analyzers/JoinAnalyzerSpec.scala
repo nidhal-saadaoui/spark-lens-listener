@@ -82,4 +82,14 @@ class JoinAnalyzerSpec extends AnyFlatSpec with Matchers {
     val flagged = issues.filter(_.id.startsWith("join-broadcast-disabled"))
     flagged.head.affectedJobs shouldBe Seq(7, 8)
   }
+
+  it should "not flag excessive shuffles below a custom excessiveShuffleCount" in {
+    // 4 shuffles — fires at default 4 but not at custom 6
+    val plan = "Exchange" * 4
+    val a = app(
+      sqlExecs = Map(0L -> sqlExec(plan = plan)),
+      props = Map("spark.sparklens.join.excessiveShuffleCount" -> "6"),
+    )
+    JoinAnalyzer.analyze(a).exists(_.id.startsWith("join-excessive")) shouldBe false
+  }
 }

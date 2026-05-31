@@ -3,10 +3,10 @@ package com.github.saadaouini.sparklens.analyzers
 import com.github.saadaouini.sparklens.model._
 
 object StageFailureAnalyzer extends Analyzer {
-  private val FailedTaskRateWarn = 0.05
-  private val MinTasks           = 5
+  private val MinTasks = 5
 
   def analyze(app: SparkAppModel): Seq[Issue] = {
+    val failedTaskRateWarn = propDouble(app, "spark.sparklens.stageFailure.failedTaskRateWarn", 0.05)
     val issues = scala.collection.mutable.ArrayBuffer[Issue]()
 
     app.stages.values.foreach { stage =>
@@ -30,7 +30,7 @@ object StageFailureAnalyzer extends Analyzer {
       if (stage.tasks.size >= MinTasks) {
         val failed      = stage.tasks.count(_.failed)
         val failedRate  = failed.toDouble / stage.tasks.size
-        if (failedRate >= FailedTaskRateWarn) {
+        if (failedRate >= failedTaskRateWarn) {
           val sample = stage.tasks
             .filter(_.failed)
             .flatMap(_.errorMessage)

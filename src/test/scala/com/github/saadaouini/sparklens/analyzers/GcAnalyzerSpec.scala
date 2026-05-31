@@ -36,4 +36,18 @@ class GcAnalyzerSpec extends AnyFlatSpec with Matchers {
     val issues = GcAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks))))
     issues.head.metrics("gc_fraction").toDouble should be > 0.10
   }
+
+  it should "fire when GC fraction exceeds a custom warnFraction" in {
+    // 5 tasks × 400ms GC / 5 tasks × 10000ms run = 4% GC — above custom 3%, below default 10%
+    val tasks = (1 to 5).map(_ => task(executorRunTimeMs = 10000L, gcMs = 400L))
+    val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.gc.warnFraction" -> "0.03"))
+    GcAnalyzer.analyze(a) should not be empty
+  }
+
+  it should "not fire when GC fraction is below a custom warnFraction" in {
+    // 12% GC — above default 10% but below custom 30%
+    val tasks = (1 to 5).map(_ => task(executorRunTimeMs = 10000L, gcMs = 1200L))
+    val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.gc.warnFraction" -> "0.30"))
+    GcAnalyzer.analyze(a) shouldBe empty
+  }
 }

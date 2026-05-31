@@ -2,6 +2,11 @@ package com.github.saadaouini.sparklens.analyzers
 
 import com.github.saadaouini.sparklens.model._
 
+// All checks below match against Spark's FORMATTED physical plan description (Spark 3.x+).
+// Node type names (CartesianProduct, SortMergeJoin, etc.) are stable identifiers in the
+// Catalyst plan tree and unlikely to change. The CBO statistics strings ("Statistics(sizeInBytes=",
+// "rowCount=") and the FORMATTED layout used for window detection (the "\n\n(" detail separator)
+// are presentation-layer strings tied to Spark's explain format — fragile across Spark versions.
 object PlanAnalyzer extends Analyzer {
 
   def analyze(app: SparkAppModel): Seq[Issue] =
@@ -74,7 +79,7 @@ object PlanAnalyzer extends Analyzer {
         )
       }
 
-      // Missing CBO statistics
+      // fragile: "Statistics(sizeInBytes=" and "rowCount=" are explain-output strings, not node names
       if (plan.contains("Statistics(sizeInBytes=") &&
           plan.contains("rowCount=") == false &&
           plan.contains("SortMergeJoin")) {

@@ -70,4 +70,13 @@ class CpuEfficiencyAnalyzerSpec extends AnyFlatSpec with Matchers {
     val issues = CpuEfficiencyAnalyzer.analyze(app(stages = Map(4 -> stage(stageId = 4, tasks = tasks))))
     issues.head.affectedStages shouldBe Seq(4)
   }
+
+  it should "not fire when cpu fraction is above a custom lowFraction" in {
+    // cpuFraction ~10% — below default 20% but above custom 5%... not an issue at custom threshold 5%
+    // Here we set threshold to 5% so 10% is above it → no issue
+    val tasks = (0 until 6).map(i =>
+      task(id = i, executorRunTimeMs = 10000L, cpuNs = 1000L * 1000000L))
+    val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.cpu.lowFraction" -> "0.05"))
+    CpuEfficiencyAnalyzer.analyze(a) shouldBe empty
+  }
 }

@@ -3,19 +3,19 @@ package com.github.saadaouini.sparklens.analyzers
 import com.github.saadaouini.sparklens.model._
 
 object SkewAnalyzer extends Analyzer {
-  private val MinTasks     = 10
   private val MinP50Ms     = 500L
-  private val P95WarnRatio = 3.0
-  private val P95CritRatio = 8.0
   private val ConcWarn     = 0.25   // top-5% tasks hold 25%+ of stage time → warning
   private val ConcCrit     = 0.50   // top-5% tasks hold 50%+ of stage time → critical
   private val MinShufBytes = 100L * 1024L
   private val ShufP95Warn  = 3.0
   private val ShufP95Crit  = 8.0
 
-  def analyze(app: SparkAppModel): Seq[Issue] =
+  def analyze(app: SparkAppModel): Seq[Issue] = {
+    val minTasks     = propLong(app,   "spark.sparklens.skew.minTasks",      10L).toInt
+    val p95WarnRatio = propDouble(app, "spark.sparklens.skew.warnP95Ratio",   3.0)
+    val p95CritRatio = propDouble(app, "spark.sparklens.skew.critP95Ratio",   8.0)
     app.stages.values.toSeq.flatMap { stage =>
-      if (stage.tasks.size < MinTasks) Nil
+      if (stage.tasks.size < minTasks) Nil
       else {
         val durations = stage.tasks.map(_.durationMs).sorted
         val p50 = percentile(durations, 50)
@@ -31,13 +31,13 @@ object SkewAnalyzer extends Analyzer {
           val p95Shuf   = percentile(shuffleBytes, 95)
           val shufRatio = if (p50Shuf >= MinShufBytes) p95Shuf.toDouble / p50Shuf else 0.0
 
-          val durWarn  = durRatio  >= P95WarnRatio
+          val durWarn  = durRatio  >= p95WarnRatio
           val concWarn = conc      >= ConcWarn
           val shufWarn = shufRatio >= ShufP95Warn
 
           if (!(durWarn || concWarn || shufWarn)) Nil
           else {
-            val durCrit  = durRatio  >= P95CritRatio
+            val durCrit  = durRatio  >= p95CritRatio
             val concCrit = conc      >= ConcCrit
             val shufCrit = shufRatio >= ShufP95Crit
             val severity = if (durCrit || concCrit || shufCrit) Critical else Warning
@@ -51,7 +51,7 @@ object SkewAnalyzer extends Analyzer {
               else if (totalInput > 0)                            "input"
               else                                                "unknown"
 
-            val stragglers = durations.count(_ > p50 * P95WarnRatio)
+            val stragglers = durations.count(_ > p50 * p95WarnRatio)
             val ratioFmt   = fmtDouble(durRatio, 1)
             val concPct    = fmtDouble(conc * 100, 0)
 
@@ -125,4 +125,5 @@ object SkewAnalyzer extends Analyzer {
         }
       }
     }
+  }
 }

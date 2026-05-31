@@ -3,10 +3,10 @@ package com.github.saadaouini.sparklens.analyzers
 import com.github.saadaouini.sparklens.model._
 
 object PreemptionAnalyzer extends Analyzer {
-  private val KilledTaskRateWarn = 0.05
-  private val MinTasks           = 10
+  private val MinTasks = 10
 
   def analyze(app: SparkAppModel): Seq[Issue] = {
+    val killedTaskRateWarn = propDouble(app, "spark.sparklens.preemption.killedTaskRateWarn", 0.05)
     val issues = scala.collection.mutable.ArrayBuffer[Issue]()
 
     // Executor lost mid-job (removed while jobs were running)
@@ -33,7 +33,7 @@ object PreemptionAnalyzer extends Analyzer {
       if (stage.tasks.size >= MinTasks) {
         val killed     = stage.tasks.count(_.killed)
         val killedRate = killed.toDouble / stage.tasks.size
-        if (killedRate >= KilledTaskRateWarn) {
+        if (killedRate >= killedTaskRateWarn) {
           issues += Issue(
             id             = s"preemption-killed-${stage.stageId}",
             severity       = Warning,

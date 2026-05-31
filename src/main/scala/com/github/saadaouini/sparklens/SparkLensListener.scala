@@ -53,8 +53,16 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
   override def onExecutorRemoved(e: SparkListenerExecutorRemoved): Unit =
     builder.onExecutorRemoved(e)
 
-  override def onJobStart(e: SparkListenerJobStart): Unit =
+  override def onJobStart(e: SparkListenerJobStart): Unit = {
     builder.onJobStart(e)
+    // Link this job to its SQL execution (if any) so affected_jobs is populated in the report.
+    // SparkListenerJobStart.properties carries spark.sql.execution.id when the job was
+    // triggered by a DataFrame/SQL operation.
+    Option(e.properties)
+      .flatMap(p => Option(p.getProperty("spark.sql.execution.id")))
+      .flatMap(id => scala.util.Try(id.toLong).toOption)
+      .foreach(builder.linkSqlJob(_, e.jobId))
+  }
 
   override def onJobEnd(e: SparkListenerJobEnd): Unit =
     builder.onJobEnd(e)

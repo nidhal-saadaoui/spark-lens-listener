@@ -3,22 +3,22 @@ package com.github.saadaouini.sparklens.analyzers
 import com.github.saadaouini.sparklens.model._
 
 object SmallFilesAnalyzer extends Analyzer {
-  private val TargetBytesPerTask = 128L * MB
-  private val MinTasks           = 10
-  private val SmallFileRatio     = 0.5  // majority of tasks have < target bytes
+  private val MinTasks       = 10
+  private val SmallFileRatio = 0.5
 
-  def analyze(app: SparkAppModel): Seq[Issue] =
+  def analyze(app: SparkAppModel): Seq[Issue] = {
+    val targetBytesPerTask = propLong(app, "spark.sparklens.smallFiles.targetMb", 128L) * MB
     app.stages.values.toSeq.flatMap { stage =>
       val inputTasks = stage.tasks.filter(_.metrics.inputBytesRead > 0)
       if (inputTasks.size < MinTasks) Nil
       else {
         val totalInput = stage.totalInputBytes
         val avgPerTask = totalInput / inputTasks.size
-        val smallTasks = inputTasks.count(_.metrics.inputBytesRead < TargetBytesPerTask / 4)
+        val smallTasks = inputTasks.count(_.metrics.inputBytesRead < targetBytesPerTask / 4)
         val smallRatio = smallTasks.toDouble / inputTasks.size
 
-        if (avgPerTask > 0 && avgPerTask < TargetBytesPerTask / 2 && smallRatio >= SmallFileRatio) {
-          val targetTasks = math.max(1, (totalInput.toDouble / TargetBytesPerTask).round.toInt)
+        if (avgPerTask > 0 && avgPerTask < targetBytesPerTask / 2 && smallRatio >= SmallFileRatio) {
+          val targetTasks = math.max(1, (totalInput.toDouble / targetBytesPerTask).round.toInt)
           Seq(Issue(
             id             = s"small-files-${stage.stageId}",
             severity       = Warning,
@@ -37,4 +37,5 @@ object SmallFilesAnalyzer extends Analyzer {
         } else Nil
       }
     }
+  }
 }

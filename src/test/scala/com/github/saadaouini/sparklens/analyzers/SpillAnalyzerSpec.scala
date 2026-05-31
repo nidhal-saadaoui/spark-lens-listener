@@ -37,4 +37,16 @@ class SpillAnalyzerSpec extends AnyFlatSpec with Matchers {
     issues.head.metrics("disk_bytes").toLong should be > 0L
     issues.head.metrics("memory_bytes").toLong should be > 0L
   }
+
+  it should "fire when disk spill exceeds a custom warnDiskMb threshold" in {
+    val tasks = (1 to 5).map(_ => task(diskSpill = 10L * MB))  // 50 MB total, above custom 20 MB
+    val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.spill.warnDiskMb" -> "20"))
+    SpillAnalyzer.analyze(a) should not be empty
+  }
+
+  it should "not fire when disk spill is below a custom warnDiskMb threshold" in {
+    val tasks = (1 to 5).map(_ => task(diskSpill = 30L * MB))  // 150 MB total, below custom 200 MB
+    val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.spill.warnDiskMb" -> "200"))
+    SpillAnalyzer.analyze(a) shouldBe empty
+  }
 }

@@ -4,6 +4,8 @@ import com.github.saadaouini.sparklens.model._
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
+import java.nio.file.Files
+
 class ReporterSpec extends AnyFlatSpec with Matchers {
 
   private def baseApp: SparkAppModel = SparkAppModel(
@@ -237,5 +239,30 @@ class ReporterSpec extends AnyFlatSpec with Matchers {
     val html = HtmlReporter.render(baseApp, Seq(issue()))
     val styleSection = html.split("<style>").lift(1).flatMap(_.split("</style>").headOption).getOrElse("")
     styleSection should not include "http"
+  }
+
+  // ── writeOrPrint local path ───────────────────────────────────────────────
+
+  "Reporter.writeOrPrint" should "write text content to a local file path" in {
+    val tmp = Files.createTempFile("spark-lens-test", ".txt")
+    try {
+      TextReporter.write(baseApp, Nil, Some(tmp.toString))
+      val written = new String(Files.readAllBytes(tmp), "UTF-8")
+      written should include("MySparkJob")
+      written should include("100/100")
+    } finally {
+      Files.deleteIfExists(tmp)
+    }
+  }
+
+  it should "write JSON content to a local file path" in {
+    val tmp = Files.createTempFile("spark-lens-test", ".json")
+    try {
+      JsonReporter.write(baseApp, Nil, Some(tmp.toString))
+      val written = new String(Files.readAllBytes(tmp), "UTF-8")
+      written should include(""""app_id": "app-001"""")
+    } finally {
+      Files.deleteIfExists(tmp)
+    }
   }
 }
