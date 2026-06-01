@@ -2,14 +2,24 @@ package com.github.saadaouini.sparklens
 
 import com.github.saadaouini.sparklens.analyzers.AnalyzerFixtures._
 import com.github.saadaouini.sparklens.model.StageData
+import org.apache.spark.sql.execution.SparkPlanInfo
+import org.apache.spark.sql.execution.metric.SQLMetricInfo
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 class SparkAppModelBuilderSpec extends AnyFlatSpec with Matchers {
 
+  // Minimal empty SparkPlanInfo for tests that don't exercise the plan tree.
+  private val emptyPlanInfo = new SparkPlanInfo(
+    "EmptyPlan", "EmptyPlan",
+    Seq.empty[SparkPlanInfo],
+    Map.empty[String, String],
+    Seq.empty[SQLMetricInfo],
+  )
+
   "SparkAppModelBuilder.linkSqlJob" should "associate a job ID with a SQL execution" in {
     val b = new SparkAppModelBuilder("3.5.0")
-    b.onSqlExecutionStart(42L, "SELECT 1", "== Physical Plan ==\nSort", 0L)
+    b.onSqlExecutionStart(42L, "SELECT 1", "== Physical Plan ==\nSort", emptyPlanInfo, 0L)
     b.linkSqlJob(42L, 7)
     val app = b.build(1000L)
     app.sqlExecutions(42L).jobIds shouldBe Seq(7)
@@ -17,7 +27,7 @@ class SparkAppModelBuilderSpec extends AnyFlatSpec with Matchers {
 
   it should "accumulate multiple job IDs for the same execution" in {
     val b = new SparkAppModelBuilder("3.5.0")
-    b.onSqlExecutionStart(1L, "q", "", 0L)
+    b.onSqlExecutionStart(1L, "q", "", emptyPlanInfo, 0L)
     b.linkSqlJob(1L, 10)
     b.linkSqlJob(1L, 11)
     b.linkSqlJob(1L, 12)
@@ -34,8 +44,8 @@ class SparkAppModelBuilderSpec extends AnyFlatSpec with Matchers {
 
   it should "leave other executions unaffected" in {
     val b = new SparkAppModelBuilder("3.5.0")
-    b.onSqlExecutionStart(1L, "q1", "", 0L)
-    b.onSqlExecutionStart(2L, "q2", "", 0L)
+    b.onSqlExecutionStart(1L, "q1", "", emptyPlanInfo, 0L)
+    b.onSqlExecutionStart(2L, "q2", "", emptyPlanInfo, 0L)
     b.linkSqlJob(1L, 5)
     val app = b.build(1000L)
     app.sqlExecutions(1L).jobIds shouldBe Seq(5)

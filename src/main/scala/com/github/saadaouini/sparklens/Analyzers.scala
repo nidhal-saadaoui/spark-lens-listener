@@ -26,7 +26,8 @@ object Analyzers {
   )
 
   def runAll(app: SparkAppModel): Seq[Issue] =
-    group(all.flatMap(_.analyze(app))).sortBy(_.severity.order)
+    group(all.flatMap(_.analyze(app)))
+      .sortBy(i => (i.severity.order, -i.estimatedImpact.flatMap(_.savedTimeMs).getOrElse(0L)))
 
   // Strip trailing -<digits> to derive a stable group key (e.g. "spill-3" → "spill").
   // Issues sharing a group key are merged into one entry so the report stays readable

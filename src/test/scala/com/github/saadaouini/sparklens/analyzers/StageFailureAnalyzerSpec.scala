@@ -92,4 +92,15 @@ class StageFailureAnalyzerSpec extends AnyFlatSpec with Matchers {
     val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.stageFailure.failedTaskRateWarn" -> "0.20"))
     StageFailureAnalyzer.analyze(a).exists(_.id.startsWith("task-failure")) shouldBe false
   }
+
+  it should "attach estimatedImpact to task-failure issue" in {
+    val tasks = (0 until 20).map(i => task(id = i, failed = i < 2, executorRunTimeMs = 5000L))
+    val issues = StageFailureAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks))))
+    val failIssues = issues.filter(_.id.startsWith("task-failure"))
+    failIssues should not be empty
+    val imp = failIssues.head.estimatedImpact
+    imp shouldBe defined
+    imp.get.savedTimeMs.exists(_ > 0) shouldBe true
+    imp.get.confidence shouldBe "medium"
+  }
 }

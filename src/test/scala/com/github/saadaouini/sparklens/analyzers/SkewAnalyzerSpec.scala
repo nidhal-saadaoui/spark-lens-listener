@@ -109,4 +109,78 @@ class SkewAnalyzerSpec extends AnyFlatSpec with Matchers {
     val a = app(stages = Map(0 -> stage(tasks = skewed)), props = Map("spark.sparklens.skew.minTasks" -> "3"))
     SkewAnalyzer.analyze(a) should not be empty
   }
+
+  it should "attach estimatedImpact to stage-skew issue" in {
+    val normal = (0 until 9).map(i => task(id = i, executorRunTimeMs = 1000L))
+    val skewed = task(id = 9, executorRunTimeMs = 15000L)
+    val tasks  = normal :+ skewed
+    val issues = SkewAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks))))
+    val stageIssues = issues.filter(i => i.id.startsWith("skew-") && !i.id.contains("exchange"))
+    stageIssues should not be empty
+    val imp = stageIssues.head.estimatedImpact
+    imp shouldBe defined
+    imp.get.savedTimeMs.exists(_ > 0) shouldBe true
+    imp.get.confidence shouldBe "high"
+  }
+
+  // ── Exchange-node byte skew (SQL plan signal) ─────────────────────────────
+
+  it should "detect Exchange byte skew when one partition holds 90% of bytes" in {
+    // Simulate a 90%-hot-key case: 1 partition has 9 MB, 9 others share the remaining 1 MB.
+    // p50 ≈ 55 KB; concentration ≈ 0.9 >> ExchConcWarn(0.25) → Warning.
+    val accId = 42L
+    val bytesPerTask: Map[Long, Long] = Map(
+      accId -> (9L * MB)   // one task writes 9 MB
+    ) // remaining 9 tasks in the resolved metrics would each have ~111 KB;
+      // model via 10 separate accumulator IDs for a clean 10-entry distribution
+    val taskDist: Map[Long, Long] =
+      (accId until accId + 10).map { id =>
+        id -> (if (id == accId) 9L * MB else 111L * 1024L)
+      }.toMap
+    val exchNode = planNode("ShuffleExchange", accumIds = taskDist.keys.toSeq, metrics = taskDist)
+    val tree     = planNode("root", children = Seq(exchNode))
+    val exec     = sqlExec(id = 1L, description = "hot-key query", planTree = Some(tree))
+    val issues   = SkewAnalyzer.analyze(app(sqlExecs = Map(1L -> exec)))
+    val skewIssues = issues.filter(_.id.startsWith("skew-"))
+    skewIssues should not be empty
+    skewIssues.head.metrics("skew_type") shouldBe "exchange"
+  }
+
+  it should "emit Critical when top-5% partitions hold 50%+ of Exchange bytes" in {
+    // 10 tasks: 1 has 95 MB, 9 share 5 MB → concentration ≈ 0.95 > ExchConcCrit(0.50)
+    val taskDist: Map[Long, Long] =
+      (100L until 110L).map { id =>
+        id -> (if (id == 100L) 95L * MB else 555L * 1024L)
+      }.toMap
+    val exchNode = planNode("ShuffleExchange", accumIds = taskDist.keys.toSeq, metrics = taskDist)
+    val tree     = planNode("root", children = Seq(exchNode))
+    val exec     = sqlExec(id = 2L, planTree = Some(tree))
+    val issues   = SkewAnalyzer.analyze(app(sqlExecs = Map(2L -> exec)))
+    issues.exists(_.id.startsWith("skew-crit")) shouldBe true
+  }
+
+  it should "not flag Exchange nodes with fewer than minTasks entries" in {
+    // Only 5 entries (below default minTasks=10) — no issue
+    val taskDist: Map[Long, Long] =
+      (200L until 205L).map(id => id -> (if (id == 200L) 9L * MB else 50L * 1024L)).toMap
+    val exchNode = planNode("ShuffleExchange", accumIds = taskDist.keys.toSeq, metrics = taskDist)
+    val exec     = sqlExec(id = 3L, planTree = Some(planNode("root", children = Seq(exchNode))))
+    SkewAnalyzer.analyze(app(sqlExecs = Map(3L -> exec))).filter(_.id.startsWith("skew-")) shouldBe empty
+  }
+
+  it should "not flag Exchange nodes with balanced byte distribution" in {
+    // All 10 tasks write ~1 MB — concentration well below 0.25
+    val taskDist: Map[Long, Long] = (300L until 310L).map(id => id -> MB).toMap
+    val exchNode = planNode("ShuffleExchange", accumIds = taskDist.keys.toSeq, metrics = taskDist)
+    val exec     = sqlExec(id = 4L, planTree = Some(planNode("root", children = Seq(exchNode))))
+    SkewAnalyzer.analyze(app(sqlExecs = Map(4L -> exec))).filter(_.id.startsWith("skew-")) shouldBe empty
+  }
+
+  it should "not flag Exchange nodes below ExchMinBytes (trivial queries)" in {
+    // Total = 10 × 50 bytes = 500 bytes < 1 KB threshold
+    val taskDist: Map[Long, Long] = (400L until 410L).map(id => id -> 50L).toMap
+    val exchNode = planNode("ShuffleExchange", accumIds = taskDist.keys.toSeq, metrics = taskDist)
+    val exec     = sqlExec(id = 5L, planTree = Some(planNode("root", children = Seq(exchNode))))
+    SkewAnalyzer.analyze(app(sqlExecs = Map(5L -> exec))).filter(_.id.startsWith("skew-")) shouldBe empty
+  }
 }

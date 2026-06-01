@@ -1,6 +1,7 @@
 package com.github.saadaouini.sparklens.analyzers
 
 import com.github.saadaouini.sparklens.model._
+import ImpactEstimator._
 
 object StageParallelismAnalyzer extends Analyzer {
 
@@ -17,23 +18,31 @@ object StageParallelismAnalyzer extends Analyzer {
         val dur = stage.durationMs
         if (dur < minStageSec * 1000L || stage.numTasks >= threshold) Nil
         else {
-          val utilPct = fmtDouble(stage.numTasks.toDouble / totalCores * 100, 0)
+          val utilPct   = fmtDouble(stage.numTasks.toDouble / totalCores * 100, 0)
+          val idleCores = totalCores - stage.numTasks
+          val impact    = EstimatedImpact(
+            summary     = s"$idleCores of $totalCores cores idle for ${fmtMs(dur)} — stage under-parallelised at $utilPct%",
+            savedTimeMs = timeOpt((dur * (1.0 - stage.numTasks.toDouble / threshold)).toLong),
+            savedBytes  = None,
+            confidence  = "medium",
+          )
           Seq(Issue(
-            id             = s"low-parallelism-${stage.stageId}",
-            severity       = Info,
-            category       = "io",
-            title          = s"Low Parallelism in Stage ${stage.stageId} — ${stage.numTasks} tasks on $totalCores cores ($utilPct% utilization)",
-            description    = s"Stage ${stage.stageId} (${stage.name}) ran ${stage.numTasks} tasks on a cluster with $totalCores available cores, using only $utilPct% of available parallelism. The stage ran for ${fmtMs(dur)} with most cores idle.",
-            recommendation = s"Increase the number of partitions to at least $threshold (${(utilRatio * 100).toInt}% of $totalCores cores). For shuffle stages raise spark.sql.shuffle.partitions; for scan stages lower spark.sql.files.maxPartitionBytes or call repartition() after the scan.",
-            configFix      = Some(s"spark.sql.shuffle.partitions=$threshold"),
-            codeFix        = Some(s"df.repartition($threshold)"),
-            affectedStages = Seq(stage.stageId),
-            metrics        = Map(
+            id              = s"low-parallelism-${stage.stageId}",
+            severity        = Info,
+            category        = "io",
+            title           = s"Low Parallelism in Stage ${stage.stageId} — ${stage.numTasks} tasks on $totalCores cores ($utilPct% utilization)",
+            description     = s"Stage ${stage.stageId} (${stage.name}) ran ${stage.numTasks} tasks on a cluster with $totalCores available cores, using only $utilPct% of available parallelism. The stage ran for ${fmtMs(dur)} with most cores idle.",
+            recommendation  = s"Increase the number of partitions to at least $threshold (${(utilRatio * 100).toInt}% of $totalCores cores). For shuffle stages raise spark.sql.shuffle.partitions; for scan stages lower spark.sql.files.maxPartitionBytes or call repartition() after the scan.",
+            configFix       = Some(s"spark.sql.shuffle.partitions=$threshold"),
+            codeFix         = Some(s"df.repartition($threshold)"),
+            affectedStages  = Seq(stage.stageId),
+            metrics         = Map(
               "num_tasks"   -> stage.numTasks.toString,
               "total_cores" -> totalCores.toString,
               "util_pct"    -> utilPct,
               "duration_ms" -> dur.toString,
             ),
+            estimatedImpact = Some(impact),
           ))
         }
       }

@@ -95,4 +95,23 @@ class LongStageAnalyzerSpec extends AnyFlatSpec with Matchers {
       props = Map("spark.sparklens.longStage.outlierRatio" -> "15.0"))
     LongStageAnalyzer.analyze(a) shouldBe empty
   }
+
+  it should "attach estimatedImpact with savedTimeMs equal to outlier overhead" in {
+    val medMs = 30000L
+    val durMs = 180000L
+    // Three stages: two at exactly medMs, one at durMs.
+    // median([30000, 30000, 180000]) = 30000 exactly.
+    val stages = Map(
+      stageWithDuration(0, medMs),
+      stageWithDuration(1, medMs),
+      stageWithDuration(2, durMs),
+    )
+    val j      = job(jobId = 0, stageIds = Seq(0, 1, 2))
+    val issues = LongStageAnalyzer.analyze(app(stages = stages, jobs = Map(0 -> j)))
+    issues should not be empty
+    val imp = issues.head.estimatedImpact
+    imp shouldBe defined
+    imp.get.savedTimeMs shouldBe Some(durMs - medMs)
+    imp.get.confidence shouldBe "high"
+  }
 }

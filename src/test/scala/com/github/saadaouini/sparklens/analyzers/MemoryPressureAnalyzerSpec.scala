@@ -72,4 +72,15 @@ class MemoryPressureAnalyzerSpec extends AnyFlatSpec with Matchers {
     val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.memoryPressure.spillMb" -> "200"))
     MemoryPressureAnalyzer.analyze(a) shouldBe empty
   }
+
+  it should "attach estimatedImpact combining gc time and spill I/O" in {
+    val tasks = (0 until 5).map(i => task(id = i, executorRunTimeMs = 10000L, gcMs = 1500L, diskSpill = 200L * MB))
+    val issues = MemoryPressureAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks))))
+    issues should not be empty
+    val imp = issues.head.estimatedImpact
+    imp shouldBe defined
+    imp.get.savedTimeMs.exists(_ > 0) shouldBe true
+    imp.get.savedBytes.exists(_ > 0) shouldBe true
+    imp.get.confidence shouldBe "medium"
+  }
 }

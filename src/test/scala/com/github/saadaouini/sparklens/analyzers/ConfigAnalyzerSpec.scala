@@ -83,4 +83,14 @@ class ConfigAnalyzerSpec extends AnyFlatSpec with Matchers {
     issues.filter(i => i.id == "config-aqe-disabled" || i.id == "config-java-serializer")
       .foreach(_.severity shouldBe Warning)
   }
+
+  it should "attach low-confidence estimatedImpact to all config issues" in {
+    val issues = ConfigAnalyzer.analyze(app())
+    issues should not be empty
+    issues.foreach { i =>
+      i.estimatedImpact shouldBe defined
+      i.estimatedImpact.get.confidence shouldBe "low"
+      i.estimatedImpact.get.savedTimeMs shouldBe None
+    }
+  }
 }

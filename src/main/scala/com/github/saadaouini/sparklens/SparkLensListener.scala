@@ -3,7 +3,11 @@ package com.github.saadaouini.sparklens
 import com.github.saadaouini.sparklens.report._
 import org.apache.spark.{SPARK_VERSION, SparkConf}
 import org.apache.spark.scheduler._
-import org.apache.spark.sql.execution.ui.{SparkListenerSQLExecutionEnd, SparkListenerSQLExecutionStart}
+import org.apache.spark.sql.execution.ui.{
+  SparkListenerSQLAdaptiveExecutionUpdate,
+  SparkListenerSQLExecutionEnd,
+  SparkListenerSQLExecutionStart,
+}
 
 import java.util.logging.{Level, Logger}
 
@@ -83,7 +87,12 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
   // SQL plan events — captured via the generic onOtherEvent hook
   override def onOtherEvent(event: SparkListenerEvent): Unit = event match {
     case e: SparkListenerSQLExecutionStart =>
-      builder.onSqlExecutionStart(e.executionId, e.description, e.physicalPlanDescription, e.time)
+      builder.onSqlExecutionStart(
+        e.executionId, e.description, e.physicalPlanDescription, e.sparkPlanInfo, e.time)
+    case e: SparkListenerSQLAdaptiveExecutionUpdate =>
+      // AQE rewrites the plan at runtime; keep the latest version so analyzers see
+      // the final executed plan (e.g. SortMergeJoin → BroadcastHashJoin) not the initial one.
+      builder.onSqlPlanUpdate(e.executionId, e.sparkPlanInfo)
     case e: SparkListenerSQLExecutionEnd =>
       builder.onSqlExecutionEnd(e.executionId, e.time)
     case _ =>

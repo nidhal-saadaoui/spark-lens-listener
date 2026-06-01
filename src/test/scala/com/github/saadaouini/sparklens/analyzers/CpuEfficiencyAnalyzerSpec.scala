@@ -79,4 +79,16 @@ class CpuEfficiencyAnalyzerSpec extends AnyFlatSpec with Matchers {
     val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.cpu.lowFraction" -> "0.05"))
     CpuEfficiencyAnalyzer.analyze(a) shouldBe empty
   }
+
+  it should "attach estimatedImpact with savedTimeMs representing idle time" in {
+    // cpuFraction = (2000ms / 1000000 → 2000ms ns→ms / 20000ms) = 10% CPU → idle = 90% of 20000 = 18000ms
+    val tasks = (0 until 6).map(i =>
+      task(id = i, executorRunTimeMs = 20000L, cpuNs = 2000L * 1000000L))
+    val issues = CpuEfficiencyAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks))))
+    issues should not be empty
+    val imp = issues.head.estimatedImpact
+    imp shouldBe defined
+    imp.get.savedTimeMs.exists(_ > 0) shouldBe true
+    imp.get.confidence shouldBe "medium"
+  }
 }

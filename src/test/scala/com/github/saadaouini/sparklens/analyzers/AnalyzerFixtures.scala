@@ -123,10 +123,11 @@ object AnalyzerFixtures {
   )
 
   def sqlExec(
-    id:          Long     = 0L,
-    description: String   = "query",
-    plan:        String   = "",
-    jobIds:      Seq[Int] = Nil,
+    id:          Long              = 0L,
+    description: String            = "query",
+    plan:        String            = "",
+    jobIds:      Seq[Int]          = Nil,
+    planTree:    Option[PlanNode]  = None,
   ): SqlExecutionData = SqlExecutionData(
     executionId      = id,
     description      = description,
@@ -134,5 +135,20 @@ object AnalyzerFixtures {
     startTimeMs      = 0L,
     completionTimeMs = Some(1000L),
     jobIds           = jobIds,
+    planTree         = planTree,
+  )
+
+  /** Build a minimal PlanNode tree for use in tests. */
+  def planNode(
+    name:     String,
+    children: Seq[PlanNode]    = Nil,
+    accumIds: Seq[Long]        = Nil,
+    metrics:  Map[Long, Long]  = Map.empty,
+  ): PlanNode = PlanNode(
+    nodeName        = name,
+    simpleString    = name,
+    accumulatorIds  = accumIds,
+    children        = children,
+    resolvedMetrics = metrics,
   )
 }

@@ -2,6 +2,7 @@ package com.github.saadaouini.sparklens
 
 import com.github.saadaouini.sparklens.model._
 import org.apache.spark.scheduler._
+import org.apache.spark.sql.execution.SparkPlanInfo
 
 import scala.collection.mutable
 
@@ -27,6 +28,15 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
 
   // track which stages belong to which job (for cache analyzer)
   private val jobStageMap = mutable.Map[Int, Seq[Int]]()
+
+  // ── SQL plan metric collection ─────────────────────────────────────────────
+  // Accumulator IDs that belong to Exchange nodes in any SQL execution's plan tree.
+  // Populated at ExecutionStart so onTaskEnd can skip irrelevant accumulators.
+  private val exchangeAccumIds = mutable.Set[Long]()
+
+  // Per-task accumulator updates: accumulatorId → list of per-task delta values.
+  // Only Exchange-node accumulators are collected to keep memory bounded.
+  private val accumPerTask = mutable.Map[Long, mutable.ArrayBuffer[Long]]()
 
   // ── Exact aggregate tracking ───────────────────────────────────────────────
   // Stores precise totals for every task that arrived, regardless of whether the
@@ -204,6 +214,22 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
     s.totalShuffleLocalBytes  += shufR.localBytesRead
     s.totalShuffleBytesWritten+= shufW.bytesWritten
 
+    // ── Collect per-task SQL metric updates for Exchange nodes ───────────────
+    // AccumulableInfo.update is the per-task delta; we sum these later to get
+    // per-task partition bytes for skew detection.  Only Exchange-node accumulators
+    // are collected — the set is populated at SQL ExecutionStart so this filter is cheap.
+    if (exchangeAccumIds.nonEmpty) {
+      info.accumulables.foreach { a =>
+        if (exchangeAccumIds.contains(a.id)) {
+          a.update.foreach {
+            case v: Long if v > 0 =>
+              accumPerTask.getOrElseUpdate(a.id, mutable.ArrayBuffer.empty) += v
+            case _ =>
+          }
+        }
+      }
+    }
+
     // ── Reservoir-sample the task object ────────────────────────────────────
     // Key by (stageId, stageAttemptId) so tasks from retried attempts don't mix.
     val n   = stageExactTaskCount.getOrElse(key, 0) + 1
@@ -273,7 +299,13 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
     stageRddCachedNames.remove(key)
   }
 
-  def onSqlExecutionStart(executionId: Long, description: String, physicalPlan: String, startTimeMs: Long): Unit = {
+  def onSqlExecutionStart(
+    executionId:  Long,
+    description:  String,
+    physicalPlan: String,
+    planInfo:     SparkPlanInfo,
+    startTimeMs:  Long,
+  ): Unit = {
     // physicalPlanDescription from SparkListenerSQLExecutionStart is queryExecution.toString()
     // which includes Parsed/Analyzed/Optimized/Physical sections.  Extract only the Physical
     // section so plan analyzers don't match logical-plan text (e.g. "Window" in logical plan
@@ -281,9 +313,11 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
     val physSection = {
       val marker = "== Physical Plan =="
       val idx    = physicalPlan.indexOf(marker)
-      val section = if (idx >= 0) physicalPlan.substring(idx + marker.length).trim else physicalPlan
-      section
+      if (idx >= 0) physicalPlan.substring(idx + marker.length).trim else physicalPlan
     }
+    val tree = toPlanNode(planInfo)
+    // Register Exchange-node accumulator IDs so onTaskEnd can collect their per-task values.
+    tree.nodesContaining("Exchange").flatMap(_.accumulatorIds).foreach(exchangeAccumIds += _)
     sqlExecutions(executionId) = SqlExecutionData(
       executionId      = executionId,
       description      = description,
@@ -291,13 +325,48 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
       startTimeMs      = startTimeMs,
       completionTimeMs = None,
       jobIds           = Nil,
+      planTree         = Some(tree),
     )
+  }
+
+  /** AQE rewrites the plan at runtime; replace the stored tree so analyzers see the final plan. */
+  def onSqlPlanUpdate(executionId: Long, planInfo: SparkPlanInfo): Unit = {
+    sqlExecutions.get(executionId).foreach { existing =>
+      val tree = toPlanNode(planInfo)
+      tree.nodesContaining("Exchange").flatMap(_.accumulatorIds).foreach(exchangeAccumIds += _)
+      sqlExecutions(executionId) = existing.copy(planTree = Some(tree))
+    }
   }
 
   def onSqlExecutionEnd(executionId: Long, completionTimeMs: Long): Unit = {
     sqlExecutions.get(executionId).foreach { existing =>
-      sqlExecutions(executionId) = existing.copy(completionTimeMs = Some(completionTimeMs))
+      // Resolve accumulator IDs in the plan tree to their summed per-task values.
+      val resolved = existing.planTree.map(resolveTree)
+      sqlExecutions(executionId) = existing.copy(
+        completionTimeMs = Some(completionTimeMs),
+        planTree         = resolved.orElse(existing.planTree),
+      )
     }
+  }
+
+  // ── Private plan helpers ──────────────────────────────────────────────────
+
+  private def toPlanNode(info: SparkPlanInfo): PlanNode =
+    PlanNode(
+      nodeName       = info.nodeName,
+      simpleString   = info.simpleString,
+      accumulatorIds = info.metrics.map(_.accumulatorId).toSeq,
+      children       = info.children.map(toPlanNode).toSeq,
+    )
+
+  private def resolveTree(node: PlanNode): PlanNode = {
+    val metrics = node.accumulatorIds
+      .flatMap(id => accumPerTask.get(id).map(buf => id -> buf.sum))
+      .toMap
+    node.copy(
+      resolvedMetrics = metrics,
+      children        = node.children.map(resolveTree),
+    )
   }
 
   def linkSqlJob(executionId: Long, jobId: Int): Unit = {

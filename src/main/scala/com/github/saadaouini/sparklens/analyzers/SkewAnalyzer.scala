@@ -1,20 +1,27 @@
 package com.github.saadaouini.sparklens.analyzers
 
 import com.github.saadaouini.sparklens.model._
+import ImpactEstimator._
 
 object SkewAnalyzer extends Analyzer {
-  private val MinP50Ms     = 500L
-  private val ConcWarn     = 0.25   // top-5% tasks hold 25%+ of stage time → warning
-  private val ConcCrit     = 0.50   // top-5% tasks hold 50%+ of stage time → critical
-  private val MinShufBytes = 100L * 1024L
-  private val ShufP95Warn  = 3.0
-  private val ShufP95Crit  = 8.0
+  private val MinP50Ms      = 500L
+  private val ConcWarn      = 0.25   // top-5% tasks hold 25%+ of stage time → warning
+  private val ConcCrit      = 0.50   // top-5% tasks hold 50%+ of stage time → critical
+  private val MinShufBytes  = 100L * 1024L
+  private val ShufP95Warn   = 3.0
+  private val ShufP95Crit   = 8.0
+  // Concentration thresholds for Exchange-node byte skew (scale-independent: works even
+  // when p50 shuffle bytes is near zero because most partitions are empty on a hot key).
+  private val ExchConcWarn  = 0.25   // top-5% partitions hold 25%+ of Exchange bytes → warning
+  private val ExchConcCrit  = 0.50   // top-5% partitions hold 50%+ of Exchange bytes → critical
+  private val ExchMinBytes  = 1024L  // ignore Exchange nodes with < 1 KB total (trivial queries)
 
   def analyze(app: SparkAppModel): Seq[Issue] = {
     val minTasks     = propLong(app,   "spark.sparklens.skew.minTasks",      10L).toInt
     val p95WarnRatio = propDouble(app, "spark.sparklens.skew.warnP95Ratio",   3.0)
     val p95CritRatio = propDouble(app, "spark.sparklens.skew.critP95Ratio",   8.0)
-    app.stages.values.toSeq.flatMap { stage =>
+
+    val stageIssues = app.stages.values.toSeq.flatMap { stage =>
       // Use exact task count when available (tasks list may be a reservoir sample)
       val taskCount = if (stage.exactTaskCount > 0) stage.exactTaskCount else stage.tasks.size
       if (taskCount < minTasks) Nil
@@ -118,17 +125,24 @@ object SkewAnalyzer extends Analyzer {
                 )
             }
 
+            val stragglerWasteMs = (p95 - p50) * stragglers
+            val stageImpact = EstimatedImpact(
+              summary     = s"~$stragglers straggler(s) wasted ~${fmtMs(p95 - p50)} each (p95 ${fmtMs(p95)} vs median ${fmtMs(p50)})",
+              savedTimeMs = timeOpt(stragglerWasteMs),
+              savedBytes  = None,
+              confidence  = "high",
+            )
             Seq(Issue(
-              id             = s"$idPrefix-${stage.stageId}",
-              severity       = severity,
-              category       = "skew",
-              title          = title,
-              description    = s"$sigDesc One or more partitions hold disproportionate data — the slowest tasks block the entire stage.",
-              recommendation = rec,
-              configFix      = Some(confFix),
-              codeFix        = Some(codFix),
-              affectedStages = Seq(stage.stageId),
-              metrics        = Map(
+              id              = s"$idPrefix-${stage.stageId}",
+              severity        = severity,
+              category        = "skew",
+              title           = title,
+              description     = s"$sigDesc One or more partitions hold disproportionate data — the slowest tasks block the entire stage.",
+              recommendation  = rec,
+              configFix       = Some(confFix),
+              codeFix         = Some(codFix),
+              affectedStages  = Seq(stage.stageId),
+              metrics         = Map(
                 "skew_type"     -> skewType,
                 "p95_ratio"     -> ratioFmt,
                 "concentration" -> fmtDouble(conc, 4),
@@ -136,11 +150,85 @@ object SkewAnalyzer extends Analyzer {
                 "p95_ms"        -> p95.toString,
                 "stragglers"    -> stragglers.toString,
               ),
+              estimatedImpact = Some(stageImpact),
             ))
           }
         }
         }   // close: if (durations.size < minTasks) Nil else
       }
     }
+
+    // ── Exchange-node byte skew (SQL plan metric signal) ─────────────────────
+    // Uses per-task accumulator values collected at task-end time and resolved into
+    // the plan tree at SQL execution-end.  Concentration is computed over the distribution
+    // of bytes written per task across the Exchange node (write-side partition bytes).
+    // This signal is scale-independent: it fires even when p50 task bytes is near zero
+    // (hot-key case where 90%+ of data lands on one partition, leaving 90%+ of tasks empty).
+    val networkSpeedMbps = propLong(app, "spark.sparklens.impact.networkSpeedMbps", 1024L)
+    val sqlSkewIssues: Seq[Issue] = app.sqlExecutions.values.toSeq.flatMap { sql =>
+      sql.planTree.toSeq.flatMap { tree =>
+        tree.nodesContaining("Exchange").flatMap { node =>
+          // resolvedMetrics: accumulatorId → sum-of-per-task-updates.
+          // Each entry is the total bytes for ONE task (one write-side partition).
+          val taskBytes = node.resolvedMetrics.values.toSeq.sorted
+          val total     = taskBytes.sum
+          if (total < ExchMinBytes || taskBytes.size < minTasks) Nil
+          else {
+            val conc = concentration(taskBytes)
+            if (conc < ExchConcWarn) Nil
+            else {
+              val severity  = if (conc >= ExchConcCrit) Critical else Warning
+              val idPrefix  = if (severity == Critical) "skew-crit" else "skew-warn"
+              val concPct   = fmtDouble(conc * 100, 0)
+              val p50       = percentile(taskBytes, 50)
+              val p95       = percentile(taskBytes, 95)
+              val hotBytes  = (total * conc).toLong
+              val penaltyMs = networkMs(hotBytes, networkSpeedMbps)
+              val exchImpact = EstimatedImpact(
+                summary     = s"~${fmtBytes(hotBytes)} in top 5% of partitions (${concPct}%), ~${fmtMs(penaltyMs)} network penalty",
+                savedTimeMs = timeOpt(penaltyMs),
+                savedBytes  = bytesOpt(hotBytes),
+                confidence  = "medium",
+              )
+              Seq(Issue(
+                id              = s"$idPrefix-exchange-${node.nodeName.hashCode.abs}-${sql.executionId}",
+                severity        = severity,
+                category        = "skew",
+                title           = s"""Exchange Byte Skew in "${sql.description.take(80)}" — ${concPct}% of bytes in top 5% of partitions""",
+                description     =
+                  s"The ${node.nodeName} node wrote ${fmtBytes(total)} total. " +
+                  s"The top 5% of write-side partitions hold ${concPct}% of data " +
+                  s"(p50 = ${fmtBytes(p50)}, p95 = ${fmtBytes(p95)}). " +
+                  s"The corresponding reduce-side tasks will be severely imbalanced.",
+                recommendation  =
+                  "Enable AQE skewJoin to split oversized join partitions automatically. " +
+                  "For hot-key groupBy, apply two-phase key salting: add a random integer " +
+                  "suffix before aggregation and strip it after.",
+                configFix       = Some("spark.sql.adaptive.enabled=true\nspark.sql.adaptive.skewJoin.enabled=true"),
+                codeFix         = Some(
+                  "// Salt the hot key to spread hot partitions across buckets:\n" +
+                  "val SALT = 8\n" +
+                  "df.withColumn(\"_salt\", (rand() * SALT).cast(\"int\"))\n" +
+                  "  .groupBy(\"key\", \"_salt\").agg(sum(\"value\").as(\"sub\"))\n" +
+                  "  .withColumn(\"key\", regexp_replace(col(\"key\"), \"_\\\\d+$\", \"\"))\n" +
+                  "  .groupBy(\"key\").agg(sum(\"sub\"))"),
+                affectedJobs    = sql.jobIds,
+                metrics         = Map(
+                  "skew_type"     -> "exchange",
+                  "concentration" -> fmtDouble(conc, 4),
+                  "total_bytes"   -> total.toString,
+                  "p50_bytes"     -> p50.toString,
+                  "p95_bytes"     -> p95.toString,
+                  "node_name"     -> node.nodeName,
+                ),
+                estimatedImpact = Some(exchImpact),
+              ))
+            }
+          }
+        }
+      }
+    }
+
+    stageIssues ++ sqlSkewIssues
   }
 }

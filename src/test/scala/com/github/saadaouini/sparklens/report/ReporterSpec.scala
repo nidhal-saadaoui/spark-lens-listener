@@ -160,14 +160,15 @@ class ReporterSpec extends AnyFlatSpec with Matchers {
     out should include(""""issue_count": 1""")
   }
 
-  it should "render config_fix as null when absent" in {
-    val out = JsonReporter.render(baseApp, Seq(issue(configFix = None)))
-    out should include(""""config_fix": null""")
+  it should "render fixes as null when both config and code are absent" in {
+    val out = JsonReporter.render(baseApp, Seq(issue(configFix = None, codeFix = None)))
+    out should include(""""fixes": null""")
   }
 
-  it should "render config_fix as a string when present" in {
+  it should "render config fix nested inside fixes object when present" in {
     val out = JsonReporter.render(baseApp, Seq(issue(configFix = Some("spark.foo=bar"))))
-    out should include(""""config_fix": "spark.foo=bar"""")
+    out should include(""""config": "spark.foo=bar"""")
+    out should include(""""fixes": {""")
   }
 
   it should "escape double-quotes in text fields" in {
@@ -189,9 +190,16 @@ class ReporterSpec extends AnyFlatSpec with Matchers {
     out should include(""""skew_type": "shuffle"""")
   }
 
-  it should "render an empty metrics object when no metrics" in {
+  it should "omit metrics field when no metrics present" in {
     val out = JsonReporter.render(baseApp, Seq(issue()))
-    out should include(""""metrics": {}""")
+    // Empty metrics are omitted — no "metrics" key when the map is empty
+    out should not include """"metrics": {}"""
+  }
+
+  it should "include metrics field when metrics are present" in {
+    val i   = issue().copy(metrics = Map("p95_ratio" -> "4.2"))
+    val out = JsonReporter.render(baseApp, Seq(i))
+    out should include(""""metrics"""")
   }
 
   it should "produce valid-looking JSON with matching braces" in {

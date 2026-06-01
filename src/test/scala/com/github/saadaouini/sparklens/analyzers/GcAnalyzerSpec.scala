@@ -50,4 +50,20 @@ class GcAnalyzerSpec extends AnyFlatSpec with Matchers {
     val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.gc.warnFraction" -> "0.30"))
     GcAnalyzer.analyze(a) shouldBe empty
   }
+
+  it should "attach estimatedImpact with savedTimeMs equal to gc time" in {
+    val gcMs    = 3000L
+    val runMs   = 20000L
+    val s = stage(stageId = 0).copy(
+      hasExactAggregates     = true,
+      exactExecutorRunTimeMs = runMs,
+      exactGcTimeMs          = gcMs,
+    )
+    val issues = GcAnalyzer.analyze(app(stages = Map(0 -> s)))
+    issues should not be empty
+    val imp = issues.head.estimatedImpact
+    imp shouldBe defined
+    imp.get.savedTimeMs shouldBe Some(gcMs)
+    imp.get.confidence shouldBe "high"
+  }
 }

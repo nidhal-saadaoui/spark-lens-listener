@@ -49,4 +49,16 @@ class SpillAnalyzerSpec extends AnyFlatSpec with Matchers {
     val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.spill.warnDiskMb" -> "200"))
     SpillAnalyzer.analyze(a) shouldBe empty
   }
+
+  it should "attach estimatedImpact with savedBytes and savedTimeMs" in {
+    val tasks = (1 to 5).map(_ => task(diskSpill = 500L * MB))
+    val s     = stage(stageId = 0, tasks = tasks).copy(hasExactAggregates = true, exactDiskSpillBytes = 500L * MB)
+    val issues = SpillAnalyzer.analyze(app(stages = Map(0 -> s)))
+    issues should not be empty
+    val imp = issues.head.estimatedImpact
+    imp shouldBe defined
+    imp.get.savedBytes.exists(_ > 0) shouldBe true
+    imp.get.savedTimeMs.exists(_ > 0) shouldBe true
+    imp.get.confidence shouldBe "medium"
+  }
 }

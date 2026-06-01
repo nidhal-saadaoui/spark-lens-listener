@@ -193,4 +193,68 @@ class CacheAnalyzerSpec extends AnyFlatSpec with Matchers {
     ))
     issues.head.title should include("clickstream")
   }
+
+  // ── PlanNode-based guards ─────────────────────────────────────────────────
+
+  it should "not flag SQL WholeStageCodegen RDD names (*(N) prefix)" in {
+    // After .cache().count(), Spark logs the plan description as the RDD name.
+    // These start with "*(N)" — they must be treated as internal infrastructure.
+    val planName = "*(1) Project [id#0L, concat_ws( , first_name#2) AS name#5]\n+- *(1) Range (0, 300000, step=1)"
+    val s0 = stage(stageId = 0, rddNames = Seq(planName))
+    val s1 = stage(stageId = 1, rddNames = Seq(planName))
+    val s2 = stage(stageId = 2, rddNames = Seq(planName))
+    val j0 = job(jobId = 0, stageIds = Seq(0))
+    val j1 = job(jobId = 1, stageIds = Seq(1))
+    val j2 = job(jobId = 2, stageIds = Seq(2))
+    CacheAnalyzer.analyze(app(
+      stages = Map(0 -> s0, 1 -> s1, 2 -> s2),
+      jobs   = Map(0 -> j0, 1 -> j1, 2 -> j2),
+    )).filter(_.category == "cache") shouldBe empty
+  }
+
+  it should "not flag SQL repeated scans when planTree contains InMemoryRelation" in {
+    // After df.cache(), Spark inserts InMemoryRelation into the plan tree.
+    // The CacheAnalyzer must suppress the finding when planTree confirms caching is active.
+    val plan = "FileScan parquet default.orders[id#1L,amount#2] ..."
+    val inMemoryTree = planNode("InMemoryRelation",
+      children = Seq(planNode("FileScan", accumIds = Nil)))
+    val execs = (0 to 4).map(i =>
+      i.toLong -> sqlExec(id = i.toLong, plan = plan, planTree = Some(inMemoryTree))
+    ).toMap
+    CacheAnalyzer.analyze(app(sqlExecs = execs)).filter(_.category == "cache") shouldBe empty
+  }
+
+  it should "still flag repeated scans when planTree has no InMemoryRelation" in {
+    val plan = "FileScan parquet default.orders[id#1L,amount#2] ..."
+    val bareTree = planNode("Project",
+      children = Seq(planNode("FileScan")))
+    val execs = (0 to 4).map(i =>
+      i.toLong -> sqlExec(id = i.toLong, plan = plan, planTree = Some(bareTree))
+    ).toMap
+    val issues = CacheAnalyzer.analyze(app(sqlExecs = execs)).filter(_.category == "cache")
+    issues should have size 1
+    issues.head.title should include("default.orders")
+  }
+
+  it should "attach estimatedImpact with savedBytes to SQL cache issue" in {
+    val plan      = "FileScan parquet default.events[id#1L] ..."
+    val oneGb     = 1L * 1024L * 1024L * 1024L
+    val bigStages = (0 to 4).map(i => i -> stage(stageId = i).copy(
+      hasExactAggregates = true,
+      exactInputBytes    = oneGb,
+    )).toMap
+    val bigJobs = (0 to 4).map(i => i -> job(jobId = i, stageIds = Seq(i))).toMap
+    val execs   = (0 to 4).map(i =>
+      i.toLong -> sqlExec(id = i.toLong, plan = plan, jobIds = Seq(i))
+    ).toMap
+    val issues = CacheAnalyzer.analyze(app(
+      stages = bigStages, jobs = bigJobs, sqlExecs = execs,
+    )).filter(_.id.startsWith("cache-sql"))
+    issues should not be empty
+    val imp = issues.head.estimatedImpact
+    imp shouldBe defined
+    imp.get.savedBytes.exists(_ > 0) shouldBe true
+    imp.get.savedTimeMs.exists(_ > 0) shouldBe true
+    imp.get.confidence shouldBe "medium"
+  }
 }
