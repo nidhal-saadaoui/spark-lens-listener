@@ -10,6 +10,33 @@ object StageFailureAnalyzer extends Analyzer {
     val failedTaskRateWarn = propDouble(app, "spark.sparklens.stageFailure.failedTaskRateWarn", 0.05)
     val issues = scala.collection.mutable.ArrayBuffer[Issue]()
 
+    // ── Job-level failures ──────────────────────────────────────────────────
+    // A failed job (red marker in the Spark UI jobs timeline) means all retry
+    // attempts for one of its stages were exhausted or an unhandled exception
+    // reached the driver.  This is a higher-severity signal than a stage retry.
+    app.jobs.values.foreach { job =>
+      if (job.status == "FAILED") {
+        val durationMs = job.completionTimeMs.map(_ - job.submissionTimeMs).getOrElse(0L)
+        val impact = EstimatedImpact(
+          summary     = s"Job ${job.jobId} (${job.name}) failed — ~${fmtMs(durationMs)} of work lost",
+          savedTimeMs = timeOpt(durationMs),
+          savedBytes  = None,
+          confidence  = "high",
+        )
+        issues += Issue(
+          id              = s"job-failed-${job.jobId}",
+          severity        = Critical,
+          category        = "reliability",
+          title           = s"Job ${job.jobId} Failed — ${job.name}",
+          description     = s"Job ${job.jobId} (${job.name}) did not complete successfully. All work performed by its stages was wasted.",
+          recommendation  = "Check the driver logs for the root exception. Common causes: executor OOM (increase driver/executor memory), a stage that exhausted spark.task.maxFailures retries, or an unhandled application exception.",
+          affectedJobs    = Seq(job.jobId),
+          metrics         = Map("job_name" -> job.name, "duration_ms" -> durationMs.toString),
+          estimatedImpact = Some(impact),
+        )
+      }
+    }
+
     app.stages.values.foreach { stage =>
       if (stage.attemptId > 0) {
         val retryMs = stage.durationMs

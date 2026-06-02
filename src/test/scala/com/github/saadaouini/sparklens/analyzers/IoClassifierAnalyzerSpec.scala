@@ -18,7 +18,7 @@ class IoClassifierAnalyzerSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "flag an I/O-bound stage when throughput exceeds the floor" in {
-    // 1 executor with 1 core, 20 s stage, reading 200 MB → 10 MB/s >> 2 MB/s floor
+    // 1 executor with 1 core, 20 s stage, reading 200 MB → 10 MB/s >> 3 MB/s floor
     val exec = executor(id = "0").copy(totalCores = 1, addedTimeMs = 0L, removedTimeMs = None)
     val s = stage(stageId = 0, submitMs = Some(0L), completeMs = Some(20000L))
              .copy(exactInputBytes = 200L * 1024L * 1024L, hasExactAggregates = true)
@@ -65,7 +65,7 @@ class IoClassifierAnalyzerSpec extends AnyFlatSpec with Matchers {
     val exec = executor(id = "0").copy(totalCores = 1, addedTimeMs = 0L, removedTimeMs = None)
     val s = stage(stageId = 0, submitMs = Some(0L), completeMs = Some(20000L))
              .copy(exactInputBytes = 200L * 1024L * 1024L, hasExactAggregates = true)
-    // Set ioFloorMbps to 100 so 10 MB/s/core is below the floor → not I/O bound
+    // Set ioFloorMbps to 100 so 10 MB/s/core is below the custom floor → not I/O bound
     val a = app(
       stages    = Map(0 -> s),
       executors = Map("0" -> exec),

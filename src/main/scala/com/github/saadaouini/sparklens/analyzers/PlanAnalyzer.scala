@@ -95,6 +95,72 @@ object PlanAnalyzer extends Analyzer {
         )
       }
 
+      // ── explode() / posexplode() — row multiplication ──────────────────────
+      // A Generate node with explode produces many more rows than it receives.
+      // This is fine when intentional (normalising arrays) but is often
+      // unintentional and causes the same data-explosion symptom as a
+      // many-to-many join.  Databricks guide: "if you see a few rows going in
+      // and magnitudes more coming out, you may be suffering from … explode()."
+      val hasExplodeText = plan.contains("Generate explode") ||
+                           plan.contains("Generate posexplode")
+      val hasExplodeTree = sql.planTree.exists(tree =>
+        tree.nodesNamed("Generate").exists(n =>
+          n.simpleString.toLowerCase.contains("explode")))
+      if (hasExplodeText || hasExplodeTree) {
+        issues += Issue(
+          id              = s"plan-explode-${sql.executionId}",
+          severity        = Warning,
+          category        = "plan",
+          title           = s"""explode() / posexplode() in "${desc.take(80)}" — Verify Row Multiplication is Intentional""",
+          description     = "A Generate(explode) node was found in the physical plan. explode() multiplies rows for every element in an array or map column. If the source column has high cardinality this can cause unexpected data explosion downstream.",
+          recommendation  =
+            "Confirm that row multiplication is expected. " +
+            "If you only need to check existence, use array_contains() instead of explode(). " +
+            "If downstream joins run on the exploded column, consider rewriting as a lateral join to avoid materialising the full cross-product.",
+          codeFix         = Some(
+            "// Instead of:\n" +
+            "df.withColumn(\"item\", explode(col(\"items\"))).join(ref, \"item\")\n" +
+            "// Consider a lateral join (Spark 3.4+):\n" +
+            "df.join(ref, array_contains(df(\"items\"), ref(\"item\")))"),
+          affectedJobs    = sql.jobIds,
+          estimatedImpact = Some(configRisk),
+        )
+      }
+
+      // ── Deep Project chain — withColumn() in a loop ─────────────────────────
+      // Each withColumn() call adds a Project node.  Catalyst collapses simple
+      // expressions but NOT UDF-bearing columns.  Many stacked Projects slow
+      // plan compilation on the driver AND indicate the loop anti-pattern.
+      val projectCount = sql.planTree
+        .map(_.nodesNamed("Project").size)
+        .getOrElse {
+          plan.split("\n")
+            .map(_.trim.replaceAll("""^\*\(\d+\) """, ""))
+            .count(l => l.startsWith("Project [") || l == "Project")
+        }
+      val projectWarn = propLong(app, "spark.sparklens.plan.projectChainWarn", 20L).toInt
+      if (projectCount >= projectWarn) {
+        issues += Issue(
+          id              = s"plan-project-chain-${sql.executionId}",
+          severity        = Warning,
+          category        = "plan",
+          title           = s"""Deep Projection Chain in "${desc.take(80)}" — $projectCount Project nodes""",
+          description     = s"The physical plan contains $projectCount Project nodes. This typically results from calling withColumn() or select() in a loop, which creates a deeply nested plan that is slow for the driver to compile and optimise.",
+          recommendation  =
+            "Combine all column derivations into a single select() or selectExpr() call. " +
+            "This reduces the plan to a single Project node and eliminates the compilation overhead.",
+          codeFix         = Some(
+            "// Instead of:\n" +
+            "for name, expr in cols.items():\n" +
+            "    df = df.withColumn(name, expr)\n" +
+            "// Use:\n" +
+            "df.select(\"*\", *[expr.alias(name) for name, expr in cols.items()])"),
+          affectedJobs    = sql.jobIds,
+          metrics         = Map("project_count" -> projectCount.toString),
+          estimatedImpact = Some(configRisk),
+        )
+      }
+
       issues.toSeq
     }
 }

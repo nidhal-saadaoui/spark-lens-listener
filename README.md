@@ -112,7 +112,7 @@ All settings are optional and prefixed with `spark.sparklens.*`:
 | `spark.sparklens.join.explodingRatio` | `5.0` | double | Output/input byte ratio above which a join is flagged as exploding |
 | `spark.sparklens.timeline.gapWarnMs` | `60000` | ms | Minimum idle gap between jobs to flag as a driver bottleneck |
 | `spark.sparklens.timeline.fragThresholdMs` | `2000` | ms | Jobs completing faster than this count toward the fragmentation check |
-| `spark.sparklens.io.ioFloorMbps` | `2.0` | MB/s | Per-core throughput above which a stage is classified as I/O-bound |
+| `spark.sparklens.io.ioFloorMbps` | `3.0` | MB/s | Per-core throughput above which a stage is classified as I/O-bound (Databricks guide benchmark: ~3 MB/s per core) |
 | `spark.sparklens.stageParallelism.singleTaskMinMs` | `5000` | ms | Minimum duration for a single-task stage to be flagged |
 
 ## CI quality gate

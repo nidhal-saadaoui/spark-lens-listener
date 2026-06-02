@@ -1,6 +1,6 @@
 package com.github.saadaouini.sparklens.analyzers
 
-import com.github.saadaouini.sparklens.model.{Critical, Info, Warning}
+import com.github.saadaouini.sparklens.model.{Critical, Info, PlanNode, Warning}
 import AnalyzerFixtures._
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -130,6 +130,79 @@ class PlanAnalyzerSpec extends AnyFlatSpec with Matchers {
       "+- Scan parquet products Statistics(sizeInBytes=10 MiB, rowCount=500)"
     val issues = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> sqlExec(plan = plan))))
     issues.exists(_.id.startsWith("plan-nocbo")) shouldBe false
+  }
+
+  // ── explode() detection ───────────────────────────────────────────────────
+
+  it should "flag Generate explode() in plan text as Warning" in {
+    val plan = "Project [id#0, elem#1]\n+- Generate explode(arr#2), [id#0], false, [elem#1]\n   +- LocalRelation"
+    val issues = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> sqlExec(plan = plan))))
+    val explode = issues.filter(_.id.startsWith("plan-explode"))
+    explode should have size 1
+    explode.head.severity shouldBe Warning
+  }
+
+  it should "flag Generate posexplode() in plan text" in {
+    val plan = "Project [id#0, pos#1, elem#2]\n+- Generate posexplode(arr#3), [id#0], false, [pos#1, elem#2]\n   +- LocalRelation"
+    val issues = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> sqlExec(plan = plan))))
+    issues.filter(_.id.startsWith("plan-explode")) should not be empty
+  }
+
+  it should "flag explode() via plan tree when text lacks the Generate node" in {
+    val genNode  = planNode("Generate", children = Seq(planNode("LocalRelation")))
+    val genNode2 = genNode.copy(simpleString = "generate explode(arr#1), [id#0]")
+    val tree     = planNode("Project", children = Seq(genNode2))
+    val exec     = sqlExec(id = 1L, plan = "Project\n+- LocalRelation", planTree = Some(tree))
+    val issues   = PlanAnalyzer.analyze(app(sqlExecs = Map(1L -> exec)))
+    issues.filter(_.id.startsWith("plan-explode")) should not be empty
+  }
+
+  it should "not flag a plan with Generate but no explode (e.g. json_tuple)" in {
+    val plan = "Project [id#0]\n+- Generate json_tuple(json#1, 'a'), [id#0], false, [c0#2]\n   +- LocalRelation"
+    val issues = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> sqlExec(plan = plan))))
+    issues.filter(_.id.startsWith("plan-explode")) shouldBe empty
+  }
+
+  // ── Deep Project chain (withColumn loop) ─────────────────────────────────
+
+  it should "flag a plan tree with 20+ Project nodes as Warning" in {
+    // Build a chain of 25 Project nodes
+    val leaf    = planNode("LocalRelation")
+    val chain   = (0 until 25).foldLeft(leaf: PlanNode) { (child, _) => planNode("Project", children = Seq(child)) }
+    val exec    = sqlExec(id = 0L, plan = "", planTree = Some(chain))
+    val issues  = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> exec)))
+    val chain25 = issues.filter(_.id.startsWith("plan-project-chain"))
+    chain25 should not be empty
+    chain25.head.severity shouldBe Warning
+    chain25.head.metrics("project_count").toInt shouldBe 25
+  }
+
+  it should "not flag a plan tree with fewer than 20 Project nodes" in {
+    val leaf  = planNode("LocalRelation")
+    val chain = (0 until 5).foldLeft(leaf: PlanNode) { (child, _) => planNode("Project", children = Seq(child)) }
+    val exec  = sqlExec(id = 0L, plan = "", planTree = Some(chain))
+    PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> exec)))
+      .filter(_.id.startsWith("plan-project-chain")) shouldBe empty
+  }
+
+  it should "flag deep Project chain via plan text when planTree is absent" in {
+    // 22 lines that start with "Project ["
+    val projectLines = (0 until 22).map(i => s"Project [col$i#$i, col${i+1}#${i+1}]").mkString("\n")
+    val plan = projectLines + "\n+- LocalRelation"
+    val exec = sqlExec(id = 0L, plan = plan, planTree = None)
+    val issues = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> exec)))
+    issues.filter(_.id.startsWith("plan-project-chain")) should not be empty
+  }
+
+  it should "respect a custom projectChainWarn threshold" in {
+    val leaf  = planNode("LocalRelation")
+    val chain = (0 until 25).foldLeft(leaf: PlanNode) { (child, _) => planNode("Project", children = Seq(child)) }
+    val exec  = sqlExec(id = 0L, plan = "", planTree = Some(chain))
+    val a = app(
+      sqlExecs = Map(0L -> exec),
+      props    = Map("spark.sparklens.plan.projectChainWarn" -> "30"),
+    )
+    PlanAnalyzer.analyze(a).filter(_.id.startsWith("plan-project-chain")) shouldBe empty
   }
 
   it should "produce issues for each SQL execution independently" in {

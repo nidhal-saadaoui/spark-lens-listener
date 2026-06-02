@@ -16,7 +16,7 @@ object IoClassifierAnalyzer extends Analyzer {
 
   def analyze(app: SparkAppModel): Seq[Issue] = {
     val minDurationMs      = propLong(app,   "spark.sparklens.io.minDurationMs",     10000L)
-    val ioFloorMbps        = propDouble(app, "spark.sparklens.io.ioFloorMbps",        2.0)
+    val ioFloorMbps        = propDouble(app, "spark.sparklens.io.ioFloorMbps",        3.0)
     val computeCeilingMbps = propDouble(app, "spark.sparklens.io.computeCeilingMbps", 1.0)
     val minIoBytes         = propLong(app,   "spark.sparklens.io.minIoBytes",         MB)
 
