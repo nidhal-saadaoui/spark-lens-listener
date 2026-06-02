@@ -118,6 +118,63 @@ object JoinAnalyzer extends Analyzer {
           estimatedImpact = Some(excessImpact),
         )
       }
+
+      // ── Exploding join: output >> input ─────────────────────────────────────
+      // A many-to-many join on a non-unique key can multiply row counts dramatically.
+      val hasSomeJoin = hasSMJ || hasBroadcast || plan.contains("CartesianProduct")
+      if (hasSomeJoin) {
+        val explodingRatio    = propLong(app, "spark.sparklens.join.explodingRatio",        5L).toDouble
+        val explodingMinInput = propLong(app, "spark.sparklens.join.explodingMinInputBytes", MB)
+
+        val totalIn = (for {
+          jobId   <- sql.jobIds
+          job     <- app.jobs.get(jobId).toSeq
+          stageId <- job.stageIds
+          stage   <- app.stages.get(stageId).toSeq
+          inBytes  = math.max(stage.totalInputBytes,
+                               stage.totalShuffleRemoteBytes + stage.totalShuffleLocalBytes)
+        } yield inBytes).sum
+
+        val totalOut = (for {
+          jobId   <- sql.jobIds
+          job     <- app.jobs.get(jobId).toSeq
+          stageId <- job.stageIds
+          stage   <- app.stages.get(stageId).toSeq
+          outBytes = math.max(stage.totalOutputBytes, stage.totalShuffleBytesWritten)
+        } yield outBytes).sum
+
+        if (totalIn > explodingMinInput && totalOut > (totalIn * explodingRatio).toLong) {
+          val ratio       = totalOut.toDouble / totalIn
+          val excessBytes = totalOut - totalIn
+          val explImpact  = EstimatedImpact(
+            summary     = s"output ${fmtBytes(totalOut)} is ${fmtDouble(ratio, 1)}× input ${fmtBytes(totalIn)}",
+            savedTimeMs = timeOpt(networkMs(excessBytes, networkSpeedMbps)),
+            savedBytes  = bytesOpt(excessBytes),
+            confidence  = "medium",
+          )
+          issues += Issue(
+            id              = s"join-exploding-${sql.executionId}",
+            severity        = Warning,
+            category        = "join",
+            title           = s"""Exploding Join in "${desc.take(80)}" — output ${fmtDouble(ratio, 1)}× input""",
+            description     = s"The join multiplied data volume: input ${fmtBytes(totalIn)} → output ${fmtBytes(totalOut)} (${fmtDouble(ratio, 1)}×). This usually indicates a many-to-many match on a non-unique key, or a missing upstream filter.",
+            recommendation  =
+              "Verify that the join key is unique on at least one side. " +
+              "Add a selective filter before the join. " +
+              "Use a semi-join if you only need to check key existence rather than multiply rows.",
+            codeFix         = Some(
+              "// Use semi-join when multiplying rows is unintended:\n" +
+              "left.join(right, Seq(\"key\"), \"left_semi\")"),
+            affectedJobs    = sql.jobIds,
+            metrics         = Map(
+              "input_bytes"  -> totalIn.toString,
+              "output_bytes" -> totalOut.toString,
+              "ratio"        -> fmtDouble(ratio, 2),
+            ),
+            estimatedImpact = Some(explImpact),
+          )
+        }
+      }
     }
 
     issues.toSeq

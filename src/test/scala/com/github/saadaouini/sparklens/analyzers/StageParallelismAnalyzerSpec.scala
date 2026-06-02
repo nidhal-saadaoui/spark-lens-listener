@@ -1,5 +1,6 @@
 package com.github.saadaouini.sparklens.analyzers
 
+import com.github.saadaouini.sparklens.model.Warning
 import AnalyzerFixtures._
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -67,4 +68,42 @@ class StageParallelismAnalyzerSpec extends AnyFlatSpec with Matchers {
       props = Map("spark.sparklens.stageParallelism.underutilizationRatio" -> "0.05"))
     StageParallelismAnalyzer.analyze(a) shouldBe empty
   }
+  // ── Single-task stage detection ──────────────────────────────────────────────
+
+  it should "flag a single-task stage that runs longer than the threshold" in {
+    val s = stage(stageId = 0, tasks = Seq(task(durationMs = 10000L)),
+                  submitMs = Some(0L), completeMs = Some(10000L))
+    // numTasks=1 on a StageData is inferred from tasks.size in the fixture
+    val a = app(stages = Map(0 -> s.copy(numTasks = 1)))
+    val issues = StageParallelismAnalyzer.analyze(a)
+    val single = issues.filter(_.id.startsWith("single-task"))
+    single should not be empty
+    single.head.severity shouldBe Warning
+    single.head.metrics("num_tasks") shouldBe "1"
+  }
+
+  it should "not flag a single-task stage shorter than the threshold" in {
+    val s = stage(stageId = 0, tasks = Seq(task(durationMs = 100L)),
+                  submitMs = Some(0L), completeMs = Some(100L))
+    val a = app(stages = Map(0 -> s.copy(numTasks = 1)))
+    StageParallelismAnalyzer.analyze(a).filter(_.id.startsWith("single-task")) shouldBe empty
+  }
+
+  it should "not flag single-task stages with a custom singleTaskMinMs" in {
+    val s = stage(stageId = 0, tasks = Seq(task(durationMs = 3000L)),
+                  submitMs = Some(0L), completeMs = Some(3000L))
+    val a = app(
+      stages = Map(0 -> s.copy(numTasks = 1)),
+      props  = Map("spark.sparklens.stageParallelism.singleTaskMinMs" -> "10000"),
+    )
+    StageParallelismAnalyzer.analyze(a).filter(_.id.startsWith("single-task")) shouldBe empty
+  }
+
+  it should "not produce a single-task issue for a multi-task stage" in {
+    val tasks = (0 until 4).map(i => task(id = i, durationMs = 10000L))
+    val s = stage(stageId = 0, tasks = tasks, submitMs = Some(0L), completeMs = Some(10000L))
+    val a = app(stages = Map(0 -> s.copy(numTasks = 4)))
+    StageParallelismAnalyzer.analyze(a).filter(_.id.startsWith("single-task")) shouldBe empty
+  }
+
 }

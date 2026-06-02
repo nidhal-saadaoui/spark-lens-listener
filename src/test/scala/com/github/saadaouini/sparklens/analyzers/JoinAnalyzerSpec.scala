@@ -173,4 +173,59 @@ class JoinAnalyzerSpec extends AnyFlatSpec with Matchers {
     flagged.head.estimatedImpact shouldBe defined
     flagged.head.estimatedImpact.get.confidence shouldBe "low"
   }
+  // ── Exploding join ────────────────────────────────────────────────────────
+
+  it should "flag an exploding join when output is 6× input" in {
+    // Stage reads 10 MB shuffle, writes 60 MB → ratio 6 > default threshold 5
+    val s = stage(stageId = 0).copy(
+      hasExactAggregates       = true,
+      exactShuffleRemoteBytes  = 10L * MB,
+      exactShuffleBytesWritten = 60L * MB,
+    )
+    val j    = job(jobId = 0, stageIds = Seq(0))
+    val exec = sqlExec(id = 0L, plan = "SortMergeJoin [key#1], [key#2]", jobIds = Seq(0))
+    val issues = JoinAnalyzer.analyze(app(
+      stages    = Map(0 -> s),
+      jobs      = Map(0 -> j),
+      sqlExecs  = Map(0L -> exec),
+      props     = Map("spark.sql.autoBroadcastJoinThreshold" -> "-1"),
+    ))
+    val exploding = issues.filter(_.id.startsWith("join-exploding"))
+    exploding should not be empty
+    exploding.head.severity shouldBe Warning
+    exploding.head.metrics("ratio").toDouble should be >= 5.0
+  }
+
+  it should "not flag an exploding join when ratio is below threshold" in {
+    val s = stage(stageId = 0).copy(
+      hasExactAggregates       = true,
+      exactShuffleRemoteBytes  = 10L * MB,
+      exactShuffleBytesWritten = 40L * MB,  // 4× < 5× threshold
+    )
+    val j    = job(jobId = 0, stageIds = Seq(0))
+    val exec = sqlExec(id = 0L, plan = "SortMergeJoin [key#1], [key#2]", jobIds = Seq(0))
+    JoinAnalyzer.analyze(app(
+      stages   = Map(0 -> s),
+      jobs     = Map(0 -> j),
+      sqlExecs = Map(0L -> exec),
+      props    = Map("spark.sql.autoBroadcastJoinThreshold" -> "-1"),
+    )).filter(_.id.startsWith("join-exploding")) shouldBe empty
+  }
+
+  it should "not flag an exploding join when input is too small (below minInputBytes)" in {
+    val s = stage(stageId = 0).copy(
+      hasExactAggregates       = true,
+      exactShuffleRemoteBytes  = 100L,        // < 1 MB default minInputBytes
+      exactShuffleBytesWritten = 10L * MB,
+    )
+    val j    = job(jobId = 0, stageIds = Seq(0))
+    val exec = sqlExec(id = 0L, plan = "SortMergeJoin [key#1], [key#2]", jobIds = Seq(0))
+    JoinAnalyzer.analyze(app(
+      stages   = Map(0 -> s),
+      jobs     = Map(0 -> j),
+      sqlExecs = Map(0L -> exec),
+      props    = Map("spark.sql.autoBroadcastJoinThreshold" -> "-1"),
+    )).filter(_.id.startsWith("join-exploding")) shouldBe empty
+  }
+
 }

@@ -84,7 +84,10 @@ class SkewAnalyzerSpec extends AnyFlatSpec with Matchers {
     val base  = (0 until 95).map(i => task(id = i, durationMs = 1000L))
     val strag = (95 until 100).map(i => task(id = i, durationMs = 4000L))
     val tasks = base ++ strag
-    val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map("spark.sparklens.skew.warnP95Ratio" -> "5.0"))
+    val a = app(stages = Map(0 -> stage(tasks = tasks)), props = Map(
+      "spark.sparklens.skew.warnP95Ratio" -> "5.0",
+      "spark.sparklens.skew.p75WarnRatio" -> "5.0",
+    ))
     SkewAnalyzer.analyze(a) shouldBe empty
   }
 
@@ -183,4 +186,34 @@ class SkewAnalyzerSpec extends AnyFlatSpec with Matchers {
     val exec     = sqlExec(id = 5L, planTree = Some(planNode("root", children = Seq(exchNode))))
     SkewAnalyzer.analyze(app(sqlExecs = Map(5L -> exec))).filter(_.id.startsWith("skew-")) shouldBe empty
   }
+  // ── p75 / Max skew check (mirrors Databricks guide threshold) ───────────────
+
+  it should "fire Warning when max task duration is > 1.5× p75" in {
+    // 9 tasks at 1000 ms, 1 task at 2000 ms: max (2000) = 2× p75 (1000) > 1.5 threshold
+    val tasks = (0 until 9).map(i => task(id = i, executorRunTimeMs = 1000L)) :+
+                task(id = 9, executorRunTimeMs = 2000L)
+    val issues = SkewAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks))))
+    val skew = issues.filter(i => i.id.startsWith("skew-") && !i.id.contains("exchange"))
+    skew should not be empty
+    skew.head.metrics.keys should contain("max_ms")
+    skew.head.metrics.keys should contain("p75_ms")
+  }
+
+  it should "not fire p75 check when max is only 1.4× p75" in {
+    // 9 tasks at 1000 ms, 1 task at 1400 ms: max / p75 = 1.4 < 1.5
+    val tasks = (0 until 9).map(i => task(id = i, executorRunTimeMs = 1000L)) :+
+                task(id = 9, executorRunTimeMs = 1400L)
+    val issues = SkewAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks))))
+    // durRatio = 1400/1000 = 1.4 < warnP95Ratio(3.0), concWarn low, shufWarn false, p75Warn false
+    issues.filter(i => i.id.startsWith("skew-") && !i.id.contains("exchange")) shouldBe empty
+  }
+
+  it should "not fire p75 check when max is below the 200 ms floor" in {
+    // 9 tasks at 50 ms, 1 task at 150 ms: max (150) > 1.5 × p75 (50) but below 200 ms floor
+    val tasks = (0 until 9).map(i => task(id = i, executorRunTimeMs = 50L)) :+
+                task(id = 9, executorRunTimeMs = 150L)
+    val issues = SkewAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks))))
+    issues.filter(i => i.id.startsWith("skew-") && !i.id.contains("exchange")) shouldBe empty
+  }
+
 }

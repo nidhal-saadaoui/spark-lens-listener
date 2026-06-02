@@ -35,8 +35,10 @@ object SkewAnalyzer extends Analyzer {
         val durations  = stage.tasks.map(_.metrics.executorRunTimeMs).filter(_ > 0).sorted
         if (durations.size < minTasks) Nil
         else {
-        val p50 = percentile(durations, 50)
-        val p95 = percentile(durations, 95)
+        val p50    = percentile(durations, 50)
+        val p75    = percentile(durations, 75)
+        val p95    = percentile(durations, 95)
+        val maxDur = durations.last
 
         // Shuffle-bytes skew is evaluated before the MinP50Ms guard so that
         // hot-key imbalance in fast local-mode or CI stages is still detected
@@ -48,6 +50,12 @@ object SkewAnalyzer extends Analyzer {
         val shufRatio = if (p50Shuf >= MinShufBytes) p95Shuf.toDouble / p50Shuf else 0.0
         val shufWarn  = shufRatio >= ShufP95Warn
 
+        // Databricks guide threshold: max > p75WarnRatio × p75 indicates a hidden-outlier
+        // skew that the p95/p50 ratio can miss (e.g., 1 slow task in 100).
+        // Gated on MinP50Ms so trivially fast stages don't fire.
+        val p75WarnRatio = propDouble(app, "spark.sparklens.skew.p75WarnRatio", 1.5)
+        val p75Warn = p75 >= MinP50Ms && maxDur > (p75 * p75WarnRatio).toLong
+
         // Duration / concentration signals only apply when stages are slow enough
         // to give meaningful timing data.
         val (durRatio, conc, durWarn, concWarn) =
@@ -57,7 +65,7 @@ object SkewAnalyzer extends Analyzer {
             (dr, cn, dr >= p95WarnRatio, cn >= ConcWarn)
           } else (0.0, 0.0, false, false)
 
-        if (!(durWarn || concWarn || shufWarn)) Nil
+        if (!(durWarn || concWarn || shufWarn || p75Warn)) Nil
           else {
             val durCrit  = durRatio  >= p95CritRatio
             val concCrit = conc      >= ConcCrit
@@ -157,6 +165,8 @@ object SkewAnalyzer extends Analyzer {
                 "p50_ms"        -> p50.toString,
                 "p95_ms"        -> p95.toString,
                 "stragglers"    -> stragglers.toString,
+                "max_ms"        -> maxDur.toString,
+                "p75_ms"        -> p75.toString,
               ),
               estimatedImpact = Some(stageImpact),
             ))

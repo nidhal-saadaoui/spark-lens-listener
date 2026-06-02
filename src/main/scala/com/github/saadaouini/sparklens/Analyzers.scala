@@ -5,6 +5,7 @@ import com.github.saadaouini.sparklens.model.{Issue, SparkAppModel}
 
 object Analyzers {
   val all: Seq[analyzers.Analyzer] = Seq(
+    JobTimelineAnalyzer,
     SkewAnalyzer,
     SpillAnalyzer,
     JoinAnalyzer,
@@ -12,6 +13,8 @@ object Analyzers {
     CacheAnalyzer,
     PreemptionAnalyzer,
     PlanAnalyzer,
+    UdfAnalyzer,
+    IoClassifierAnalyzer,
     ConfigAnalyzer,
     SmallFilesAnalyzer,
     OutputSmallFilesAnalyzer,

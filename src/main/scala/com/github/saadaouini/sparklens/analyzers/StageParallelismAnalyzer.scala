@@ -6,12 +6,36 @@ import ImpactEstimator._
 object StageParallelismAnalyzer extends Analyzer {
 
   def analyze(app: SparkAppModel): Seq[Issue] = {
+    val singleTaskMinMs = propLong(app, "spark.sparklens.stageParallelism.singleTaskMinMs", 5000L)
+
+    // Single-task stages run serially on one core; flag before the core-utilisation check.
+    val singleTaskIssues: Seq[Issue] = app.stages.values.toSeq.flatMap { stage =>
+      if (stage.numTasks != 1 || stage.durationMs < singleTaskMinMs) Nil
+      else Seq(Issue(
+        id              = s"single-task-${stage.stageId}",
+        severity        = Warning,
+        category        = "io",
+        title           = s"Single-Task Stage ${stage.stageId} — Entire Stage Runs on One Executor",
+        description     = s"Stage ${stage.stageId} (${stage.name}) ran as a single task for ${fmtMs(stage.durationMs)}, leaving all other cluster resources idle.",
+        recommendation  = "Check whether repartition(1) or coalesce(1) was called upstream. " +
+          "A CollectLimit or TakeOrderedAndProject node in the plan also forces single-task execution. " +
+          "Increase partitions to distribute work across available cores.",
+        codeFix         = Some("df.repartition(spark.sparkContext.defaultParallelism)"),
+        affectedStages  = Seq(stage.stageId),
+        metrics         = Map(
+          "num_tasks"   -> "1",
+          "duration_ms" -> stage.durationMs.toString,
+        ),
+        estimatedImpact = Some(configRisk),
+      ))
+    }
+
     val minCores     = propLong(app,   "spark.sparklens.stageParallelism.minCores",             8L).toInt
     val utilRatio    = propDouble(app, "spark.sparklens.stageParallelism.underutilizationRatio", 0.5)
     val minStageSec  = propLong(app,   "spark.sparklens.stageParallelism.minStageSec",          10L)
 
     val totalCores = app.executors.values.map(_.totalCores).sum
-    if (totalCores < minCores) Nil
+    val coreIssues: Seq[Issue] = if (totalCores < minCores) Nil
     else {
       val threshold = math.max(1, (totalCores * utilRatio).toInt)
       app.stages.values.toSeq.flatMap { stage =>
@@ -47,5 +71,7 @@ object StageParallelismAnalyzer extends Analyzer {
         }
       }
     }
+
+    singleTaskIssues ++ coreIssues
   }
 }

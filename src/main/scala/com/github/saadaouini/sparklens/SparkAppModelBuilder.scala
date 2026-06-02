@@ -27,7 +27,8 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
   private val stageRddCachedNames= mutable.Map[(Int, Int), Set[String]]()
 
   // track which stages belong to which job (for cache analyzer)
-  private val jobStageMap = mutable.Map[Int, Seq[Int]]()
+  private val jobStageMap     = mutable.Map[Int, Seq[Int]]()
+  private val jobSubmitTimeMs = mutable.Map[Int, Long]()
 
   // ── SQL plan metric collection ─────────────────────────────────────────────
   // Accumulator IDs that belong to Exchange nodes in any SQL execution's plan tree.
@@ -104,7 +105,8 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
   }
 
   def onJobStart(e: SparkListenerJobStart): Unit = {
-    jobStageMap(e.jobId) = e.stageIds
+    jobStageMap(e.jobId)     = e.stageIds
+    jobSubmitTimeMs(e.jobId) = e.time
   }
 
   def onJobEnd(e: SparkListenerJobEnd): Unit = {
@@ -125,10 +127,11 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
       jobId            = e.jobId,
       name             = name,
       stageIds         = jobStageMap.getOrElse(e.jobId, Nil),
-      submissionTimeMs = 0L,
+      submissionTimeMs = jobSubmitTimeMs.getOrElse(e.jobId, 0L),
       completionTimeMs = Some(e.time),
       status           = status,
     )
+    jobSubmitTimeMs.remove(e.jobId)
   }
 
   def onStageSubmitted(e: SparkListenerStageSubmitted): Unit = {

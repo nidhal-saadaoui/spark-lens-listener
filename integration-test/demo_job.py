@@ -9,6 +9,7 @@ Deliberately generates detectable patterns for the CI verification step:
   5. Excessive shuffles (4 Exchange nodes) — triggers JoinAnalyzer (Shuffles)
   6. Cartesian product — triggers PlanAnalyzer (Critical)
   7. CollectLimit — triggers DriverBottleneckAnalyzer
+  8. Python UDF — triggers UdfAnalyzer
 """
 
 from pyspark.sql import SparkSession
@@ -111,6 +112,16 @@ print("   cartesian job done")
 print(">> Job 7: limit().collect() — CollectLimit in physical plan")
 spark.range(5_000).toDF("id").limit(500).collect()
 print("   collect-limit job done")
+
+# ── 8. Python UDF → UdfAnalyzer Warning ──────────────────────────────────────
+# A standard Python UDF produces BatchEvalPython in the physical plan.
+# UdfAnalyzer checks for PythonUDF / BatchEvalPython / ArrowEvalPython.
+print(">> Job 8: Python UDF — BatchEvalPython in physical plan")
+from pyspark.sql.functions import udf
+from pyspark.sql.types import LongType
+double_id = udf(lambda x: x * 2, LongType())
+spark.range(10_000).withColumn("doubled", double_id(F.col("id"))).agg(F.sum("doubled")).collect()
+print("   udf job done")
 
 print("\n=== jobs complete — spark-lens report follows ===\n")
 spark.stop()

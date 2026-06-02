@@ -82,6 +82,10 @@ case class StageData(
     if (hasExactAggregates) exactOutputBytes
     else tasks.map(_.metrics.outputBytesWritten).sum
 
+  def totalShuffleBytesWritten: Long =
+    if (hasExactAggregates) exactShuffleBytesWritten
+    else tasks.map(_.metrics.shuffleBytesWritten).sum
+
   def totalResultSize: Long =
     if (hasExactAggregates) exactResultSize
     else tasks.map(_.metrics.resultSize).sum

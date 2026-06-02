@@ -151,7 +151,8 @@ jobs:
           grep -q "Java Serializer"                      /tmp/spark-lens-report.txt
           grep -q "Adaptive Query Execution"             /tmp/spark-lens-report.txt
           grep -q "Driver-Side Aggregation"              /tmp/spark-lens-report.txt
-          echo "All 10 expected issues detected in report."
+          grep -q "Consider Native Functions"            /tmp/spark-lens-report.txt
+          echo "All 11 expected issues detected in report."
 
       - name: Upload report
         if: always()

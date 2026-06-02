@@ -76,23 +76,26 @@ on large pipelines.
 
 | Analyzer | Category | Signal |
 |---|---|---|
-| SkewAnalyzer | skew | p95/p50 task duration ratio > 3× or top-5% tasks hold > 25% of stage time |
+| SkewAnalyzer | skew | p95/p50 task duration ratio > 3×, top-5% tasks hold > 25% of stage time, or max task > 1.5× p75 (hidden outlier) |
 | SpillAnalyzer | spill | Total disk spill > 100 MB |
-| JoinAnalyzer | join | Broadcast disabled on SMJ, broadcast threshold ≥ 1 GB, ≥ 4 shuffle exchanges |
+| JoinAnalyzer | join | Broadcast disabled on SMJ, broadcast threshold ≥ 1 GB, ≥ 4 shuffle exchanges, output > 5× input (exploding join) |
 | GcAnalyzer | gc | GC time > 10% of executor run time |
 | CacheAnalyzer | cache | Same RDD scanned in multiple jobs without caching |
 | PreemptionAnalyzer | preemption | Executor lost mid-job, task kill rate > 5% |
 | PlanAnalyzer | plan | CartesianProduct, Window without PARTITION BY, round-robin repartition, missing CBO stats |
+| UdfAnalyzer | plan | Python UDF (PythonUDF / BatchEvalPython / ArrowEvalPython) or Scala UDF detected in physical plan |
 | ConfigAnalyzer | config | AQE disabled, Java serializer, default shuffle partitions, low memory overhead |
 | SmallFilesAnalyzer | io | Input avg < 64 MB/task with majority of tasks reading tiny files |
 | OutputSmallFilesAnalyzer | io | Output avg < 64 MB/task — downstream jobs will hit the small-files problem |
 | ShuffleLocalityAnalyzer | io | > 70% of shuffle bytes read remotely |
 | DriverBottleneckAnalyzer | io | collect() result > 50 MB, CollectLimit or TakeOrderedAndProject in plan |
 | CpuEfficiencyAnalyzer | io | CPU utilization < 20% of executor run time |
+| IoClassifierAnalyzer | io | Stage throughput ≥ 2 MB/s/core (I/O-bound) or < 1 MB/s/core despite long runtime (compute-bound) |
+| JobTimelineAnalyzer | io | Idle gap > 60 s between jobs (driver bottleneck), or > 50% of jobs complete in < 2 s (fragmentation) |
 | SpeculationAnalyzer | config | Speculative tasks firing — masking skew rather than fixing it |
 | StageFailureAnalyzer | reliability | Stage retried (attempt > 0), task failure rate > 5% |
 | MemoryPressureAnalyzer | reliability | GC > 10% and disk spill > 100 MB co-occurring in the same stage |
-| StageParallelismAnalyzer | io | Stage tasks < 50% of available executor cores on a stage > 10 s |
+| StageParallelismAnalyzer | io | Stage tasks < 50% of available executor cores on a stage > 10 s, or entire stage runs as a single task |
 | LongStageAnalyzer | reliability | Stage duration > 5× the median stage duration in its job |
 
 ## Configuration
@@ -104,6 +107,13 @@ All settings are optional and prefixed with `spark.sparklens.*`:
 | `spark.sparklens.output` | `off` | `off` `text` `json` `html` | Output format. `off` = silent unless `fail.on` is set |
 | `spark.sparklens.report.path` | *(stdout)* | local path or `hdfs://...` | Write report to a file instead of stdout |
 | `spark.sparklens.fail.on` | *(none)* | `critical` `warning` `info` | Throw at app end if issues at this severity or above are found |
+| `spark.sparklens.skew.warnP95Ratio` | `3.0` | double | p95/p50 task duration ratio threshold for skew warning |
+| `spark.sparklens.skew.p75WarnRatio` | `1.5` | double | max/p75 task duration ratio threshold for hidden-outlier skew |
+| `spark.sparklens.join.explodingRatio` | `5.0` | double | Output/input byte ratio above which a join is flagged as exploding |
+| `spark.sparklens.timeline.gapWarnMs` | `60000` | ms | Minimum idle gap between jobs to flag as a driver bottleneck |
+| `spark.sparklens.timeline.fragThresholdMs` | `2000` | ms | Jobs completing faster than this count toward the fragmentation check |
+| `spark.sparklens.io.ioFloorMbps` | `2.0` | MB/s | Per-core throughput above which a stage is classified as I/O-bound |
+| `spark.sparklens.stageParallelism.singleTaskMinMs` | `5000` | ms | Minimum duration for a single-task stage to be flagged |
 
 ## CI quality gate
 
