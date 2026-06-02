@@ -66,9 +66,17 @@
   .t-arrow { color: #34d399; font-weight: 700 }
   .t-conf { color: #7dd3fc }
   .t-dim  { color: #475569 }
+  .t-save { color: #a78bfa; font-style: italic }
 
   /* ── report preview ── */
   .preview-frame { width: 100%; height: 640px; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.1); overflow: hidden }
+
+  /* ── output formats ── */
+  .format-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 40px }
+  .format-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px }
+  .format-tag { display: inline-block; background: #0f172a; color: #f8fafc; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 4px; font-family: monospace; margin-bottom: 10px }
+  .format-card h4 { font-size: 14px; font-weight: 700; margin-bottom: 6px }
+  .format-card p { font-size: 13px; color: #64748b; line-height: 1.5 }
 
   /* ── analyzers table ── */
   .analyzer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px }
@@ -153,10 +161,10 @@
       <div>&nbsp;&nbsp;<span class="hl">myJob.jar</span></div>
     </div>
     <div class="hero-pills">
-      <span class="pill-stat"><strong>18</strong> analyzers</span>
-      <span class="pill-stat"><strong>3</strong> output formats</span>
-      <span class="pill-stat"><strong>24</strong> configurable thresholds</span>
-      <span class="pill-stat">Zero dependencies</span>
+      <span class="pill-stat"><strong>26</strong> analyzers</span>
+      <span class="pill-stat"><strong>4</strong> output formats</span>
+      <span class="pill-stat"><strong>40+</strong> configurable thresholds</span>
+      <span class="pill-stat">Estimated savings per issue</span>
       <span class="pill-stat">Apache 2.0</span>
     </div>
   </div>
@@ -182,19 +190,42 @@
       <div class="step">
         <div class="step-num">3</div>
         <h3>Read the report</h3>
-        <p>At application end, a prioritized list of issues is printed to driver stdout or written to a file (or both). Every issue includes a description, a concrete recommendation, and ready-to-paste config or code fixes.</p>
+        <p>At application end, issues are ranked by estimated savings and printed to driver stdout or written to a file. Every issue includes a concrete recommendation and ready-to-paste config or code fixes — with estimated time saved per run.</p>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ── TEXT REPORT ───────────────────────────────────────────────────────── -->
+<!-- ── REPORT OUTPUT ─────────────────────────────────────────────────────── -->
 <section id="output">
   <div class="section-inner">
     <h2>Report output</h2>
-    <p class="section-sub">Three formats: <strong>text</strong> for driver stdout, <strong>HTML</strong> for humans, <strong>JSON</strong> for CI parsers and dashboards.</p>
+    <p class="section-sub">Four formats: <strong>text</strong> for driver stdout, <strong>HTML</strong> for humans, <strong>JSON</strong> for CI parsers and dashboards, <strong>log</strong> for log aggregation (one line per issue).</p>
 
-    <h3 style="font-size:16px;font-weight:700;margin-bottom:12px;color:#374151">Text report — printed to driver stdout</h3>
+    <div class="format-grid">
+      <div class="format-card">
+        <div class="format-tag">text</div>
+        <h4>Driver stdout</h4>
+        <p>Human-readable with priority fixes section, issue list, and quick-wins grouped by config change. Default when a file path is given without a format extension.</p>
+      </div>
+      <div class="format-card">
+        <div class="format-tag">html</div>
+        <h4>Interactive report</h4>
+        <p>Collapsible issues with severity badges, estimated savings, metrics table, config/code fix blocks, and stage tooltips showing callSite. Suitable for sharing as a CI artifact.</p>
+      </div>
+      <div class="format-card">
+        <div class="format-tag">json</div>
+        <h4>Machine-readable</h4>
+        <p>Stable schema with <code>health_score</code>, <code>total_estimated_savings_ms</code>, <code>top_actions</code>, and full issue array. Parse in CI pipelines or feed into dashboards.</p>
+      </div>
+      <div class="format-card">
+        <div class="format-tag">log</div>
+        <h4>Log aggregation</h4>
+        <p>One log line per issue via the driver Java logger. Compatible with Datadog, Splunk, CloudWatch Logs — filter on <code>SPARKLENS</code> tag. No file path needed.</p>
+      </div>
+    </div>
+
+    <h3 style="font-size:16px;font-weight:700;margin-bottom:12px;color:#374151">Text report — priority fixes ranked by estimated savings</h3>
     <div class="terminal-wrap" style="margin-bottom:40px">
       <div class="terminal-bar">
         <div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div>
@@ -202,37 +233,35 @@
       </div>
       <div class="terminal-body"><span class="t-eq">======================================================================</span>
   spark-lens  |  <span class="t-app">daily-revenue-pipeline</span>  (app-20241105-0042)
-  Spark 3.5.0   |  Health: <span class="t-score">64/100</span>  |  3 warning  ·  2 info
+  Spark 3.5.0   |  Health: <span class="t-score">64/100</span>  |  1 critical  ·  3 warning  ·  2 info
 <span class="t-eq">======================================================================</span>
 
-  [<span class="t-warn">⚠ WARNING </span>]  Java Serializer in Use — Switch to Kryo
-           Java serialization is 10× slower than Kryo. Every shuffle write,
-           broadcast variable, and RDD persist pays this cost.
-        <span class="t-arrow">→</span>  Switch to Kryo for JVM workloads.
-           <span class="t-conf">config: spark.serializer=org.apache.spark.serializer.KryoSerializer</span>
+  Priority fixes (estimated savings per run):
+  1. [<span class="t-crit">Critical</span>] Disk Spill in Stage 3 [+2 more stages]<span class="t-save">  ~4.2min</span>
+  2. [<span class="t-warn">Warning</span>]  Data Skew in Stage 5<span class="t-save">  ~1.8min</span>
+  3. [<span class="t-warn">Warning</span>]  Java Serializer in Use — Switch to Kryo<span class="t-save">  ~45s</span>
 
-  [<span class="t-warn">⚠ WARNING </span>]  Adaptive Query Execution (AQE) Is Disabled
-           AQE handles skew and coalesces partitions at runtime.
-        <span class="t-arrow">→</span>  Enable AQE for all production workloads on Spark 3.x.
-           <span class="t-conf">config: spark.sql.adaptive.enabled=true</span>
+  [<span class="t-crit">✖ CRITICAL</span>]  Disk Spill in Stage 3 — 2.1 GB spilled [+2 more stages]<span class="t-save">  (~4.2min per run)</span>
+    fix:   spark.executor.memory=8g
+           # or reduce cores to lower concurrent peak demand:
+           # spark.executor.cores=2
+       Stage 3 spilled 2.1 GB to disk. Disk I/O is 10–100× slower than RAM.
+    stages: 3, 7, 11
 
-  [<span class="t-warn">⚠ WARNING </span>]  Excessive Shuffles in "..." (6 exchanges) [+1 more queries]
-           6 shuffle exchanges — the data crosses the network 6 times.
-        <span class="t-arrow">→</span>  Reduce shuffles; enable AQE.
-           <span class="t-conf">config: spark.sql.adaptive.enabled=true</span>
-           <span class="t-dim">jobs:   2, 3, 4, 5</span>
+  [<span class="t-warn">⚠ WARNING</span>]  Data Skew in Stage 5<span class="t-save">  (~1.8min per run)</span>
+    fix:   spark.sql.adaptive.skewJoin.enabled=true
+       Top-5% of tasks hold 67% of stage time. Shuffle skew detected.
+    stages: 5
 
-  [<span class="t-info">ℹ INFO    </span>]  Low Executor Memory Overhead — Risk of Off-Heap OOM
-        <span class="t-arrow">→</span>  <span class="t-conf">spark.executor.memoryOverheadFactor=0.2</span>
-
-  [<span class="t-info">ℹ INFO    </span>]  Default Shuffle Partitions (200) — May Be Too Few or Too Many
-        <span class="t-arrow">→</span>  <span class="t-conf">spark.sql.adaptive.enabled=true</span>
+  [<span class="t-warn">⚠ WARNING</span>]  Java Serializer in Use — Switch to Kryo<span class="t-save">  (~45s per run)</span>
+    fix:   spark.serializer=org.apache.spark.serializer.KryoSerializer
+       Java serialization is 10× slower than Kryo.
 
 <span class="t-eq">======================================================================</span></div>
     </div>
 
-    <h3 style="font-size:16px;font-weight:700;margin-bottom:12px;color:#374151">HTML report — interactive, collapsible issues with stage/job links</h3>
-    <p style="font-size:13px;color:#64748b;margin-bottom:16px">Issues are grouped by type — e.g. <em>Disk Spill in Stage 3 [+4 more stages]</em> — so the report stays readable on large pipelines. Click any issue to collapse it.</p>
+    <h3 style="font-size:16px;font-weight:700;margin-bottom:12px;color:#374151">HTML report — interactive, collapsible issues with metrics and stage links</h3>
+    <p style="font-size:13px;color:#64748b;margin-bottom:16px">Issues are grouped by type — e.g. <em>Disk Spill in Stage 3 [+4 more stages]</em> — so the report stays readable on large pipelines. Each issue shows its estimated impact badge, metrics table, and config/code fix blocks. Stage pills have callSite tooltips.</p>
     <iframe class="preview-frame" src="assets/report-sample.html" title="spark-lens HTML report sample"></iframe>
   </div>
 </section>
@@ -241,79 +270,111 @@
 <section id="analyzers">
   <div class="section-inner">
     <h2>What it detects</h2>
-    <p class="section-sub">18 analyzers covering skew, memory, I/O, query planning, configuration, and reliability.</p>
+    <p class="section-sub">26 analyzers covering skew, memory, I/O, query planning, configuration, and reliability — every issue includes an estimated savings figure.</p>
     <div class="analyzer-grid">
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">JobTimelineAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">Idle gap &gt; 60 s between jobs (driver is the bottleneck), or &gt; 70% of jobs complete in &lt; 2 s across 50+ total jobs (scheduling fragmentation).</div>
+      </div>
       <div class="analyzer-card">
         <div class="ac-header"><span class="ac-name">SkewAnalyzer</span><span class="ac-cat cat-skew">skew</span></div>
         <div class="ac-signal">p95/p50 task duration ratio &gt; 3× or top-5% tasks hold &gt; 25% of stage time. Distinguishes shuffle skew from input skew with different recommendations.</div>
       </div>
       <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">TaskOverheadAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">Executor deserialize time &gt; 30% of run time — too many small tasks paying serialization overhead on every task launch.</div>
+      </div>
+      <div class="analyzer-card">
         <div class="ac-header"><span class="ac-name">SpillAnalyzer</span><span class="ac-cat cat-spill">spill</span></div>
-        <div class="ac-signal">Total disk spill &gt; 100 MB (Warning) or &gt; 1 GB (Critical). Disk I/O is 10–100× slower than RAM.</div>
+        <div class="ac-signal">Total disk spill &gt; 100 MB (Warning) or &gt; 1 GB (Critical). Disk I/O is 10–100× slower than RAM — spill is a reliable sign of under-provisioned executor memory.</div>
       </div>
       <div class="analyzer-card">
         <div class="ac-header"><span class="ac-name">JoinAnalyzer</span><span class="ac-cat cat-join">join</span></div>
-        <div class="ac-signal">Broadcast disabled on SortMergeJoin, broadcast threshold ≥ 1 GB (driver OOM risk), or ≥ 4 shuffle exchanges in one query.</div>
+        <div class="ac-signal">Broadcast disabled on SortMergeJoin (missed opportunity), broadcast threshold ≥ 1 GB (driver OOM risk), ≥ 4 shuffle exchanges in one query, or output &gt; 5× input (exploding join).</div>
       </div>
       <div class="analyzer-card">
         <div class="ac-header"><span class="ac-name">GcAnalyzer</span><span class="ac-cat cat-gc">gc</span></div>
-        <div class="ac-signal">GC time &gt; 10% (Warning) or &gt; 20% (Critical) of executor run time. GC pauses can cause heartbeat timeouts.</div>
+        <div class="ac-signal">GC time &gt; 10% (Warning) or &gt; 20% (Critical) of executor run time. Excessive GC pauses slow tasks and can trigger heartbeat timeouts.</div>
       </div>
       <div class="analyzer-card">
         <div class="ac-header"><span class="ac-name">CacheAnalyzer</span><span class="ac-cat cat-cache">cache</span></div>
-        <div class="ac-signal">Same RDD scanned in ≥ 2 jobs without caching — the full upstream lineage is re-executed each time.</div>
-      </div>
-      <div class="analyzer-card">
-        <div class="ac-header"><span class="ac-name">PlanAnalyzer</span><span class="ac-cat cat-plan">plan</span></div>
-        <div class="ac-signal">CartesianProduct (quadratic), Window without PARTITION BY (single-partition serial), round-robin repartition, missing CBO row count statistics.</div>
-      </div>
-      <div class="analyzer-card">
-        <div class="ac-header"><span class="ac-name">ConfigAnalyzer</span><span class="ac-cat cat-config">config</span></div>
-        <div class="ac-signal">AQE disabled, Java serializer, default shuffle partitions (200), low executor memory overhead.</div>
-      </div>
-      <div class="analyzer-card">
-        <div class="ac-header"><span class="ac-name">SmallFilesAnalyzer</span><span class="ac-cat cat-io">io</span></div>
-        <div class="ac-signal">Input avg &lt; 64 MB/task with majority of tasks reading tiny files — too many map tasks, high scheduling overhead.</div>
-      </div>
-      <div class="analyzer-card">
-        <div class="ac-header"><span class="ac-name">OutputSmallFilesAnalyzer</span><span class="ac-cat cat-io">io</span></div>
-        <div class="ac-signal">Output avg &lt; 64 MB/task — each task writes one file, so many tasks mean many small files that slow every downstream job.</div>
-      </div>
-      <div class="analyzer-card">
-        <div class="ac-header"><span class="ac-name">ShuffleLocalityAnalyzer</span><span class="ac-cat cat-io">io</span></div>
-        <div class="ac-signal">&gt; 70% of shuffle bytes read remotely — cross-rack or cross-AZ reads saturate shared network bandwidth.</div>
-      </div>
-      <div class="analyzer-card">
-        <div class="ac-header"><span class="ac-name">DriverBottleneckAnalyzer</span><span class="ac-cat cat-io">io</span></div>
-        <div class="ac-signal">collect() result &gt; 50 MB back to driver, or CollectLimit / TakeOrderedAndProject in the SQL plan.</div>
-      </div>
-      <div class="analyzer-card">
-        <div class="ac-header"><span class="ac-name">CpuEfficiencyAnalyzer</span><span class="ac-cat cat-io">io</span></div>
-        <div class="ac-signal">CPU utilization &lt; 20% of executor run time — most core time is I/O wait, shuffle network, or JVM overhead.</div>
+        <div class="ac-signal">Same table or RDD scanned in ≥ 2 jobs without caching — the full upstream lineage is re-executed each time. Savings scale with table size × scan count.</div>
       </div>
       <div class="analyzer-card">
         <div class="ac-header"><span class="ac-name">PreemptionAnalyzer</span><span class="ac-cat cat-preemption">preemption</span></div>
-        <div class="ac-signal">Executor lost mid-job or task kill rate &gt; 5% per stage — indicates resource contention or container eviction.</div>
+        <div class="ac-signal">Executor lost mid-job or task kill rate &gt; 5% per stage — indicates resource contention, YARN preemption, or spot-instance eviction.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">PlanAnalyzer</span><span class="ac-cat cat-plan">plan</span></div>
+        <div class="ac-signal">CartesianProduct (quadratic cost), Window without PARTITION BY (forces single-partition serial execution), round-robin repartition before a join, missing CBO row-count statistics.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">UdfAnalyzer</span><span class="ac-cat cat-plan">plan</span></div>
+        <div class="ac-signal">Python UDF (PythonUDF / BatchEvalPython) or Scala UDF detected in the physical plan — breaks Catalyst optimizations and adds row-by-row serialization overhead.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">IoClassifierAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">Stage throughput ≥ 3 MB/s per core — the stage is storage/network bound, not compute-bound. Predicate pushdown, columnar formats, or caching are the levers.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">ConfigAnalyzer</span><span class="ac-cat cat-config">config</span></div>
+        <div class="ac-signal">9 checks: AQE disabled, Java serializer, default shuffle partitions (200), low memory overhead, AQE skew-join disabled, small shuffle buffer (&lt; 64 k), CBO histograms disabled, low task.maxFailures, high locality.wait.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">ExecutorSizingAnalyzer</span><span class="ac-cat cat-config">config</span></div>
+        <div class="ac-signal">Executor memory under-provisioned (p95 task peak × cores &gt; 85% of execution pool) or over-provisioned (&lt; 25% utilized). Also flags driver heap risk and cluster cores vs max stage parallelism.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">SmallFilesAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">Input avg &lt; 64 MB/task with majority of tasks reading tiny files — too many map tasks, high scheduling and metadata overhead per file open.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">OutputSmallFilesAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">Output avg &lt; 64 MB/task — each task writes one file, so many tasks create many small files that slow every downstream job that reads this data.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">ShuffleLocalityAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">&gt; 70% of shuffle bytes read remotely — cross-rack or cross-AZ reads saturate shared network bandwidth and add latency.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">DriverBottleneckAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">collect() result &gt; 50 MB returned to driver, or CollectLimit / TakeOrderedAndProject in the SQL plan — driver becomes the bottleneck.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">CpuEfficiencyAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">CPU utilization &lt; 20% of executor run time — most core time is I/O wait, shuffle network, or JVM overhead rather than actual computation.</div>
       </div>
       <div class="analyzer-card">
         <div class="ac-header"><span class="ac-name">SpeculationAnalyzer</span><span class="ac-cat cat-config">config</span></div>
-        <div class="ac-signal">Speculative tasks actively firing — treating the symptom (slow tasks) instead of the cause (data skew).</div>
+        <div class="ac-signal">Speculative tasks actively firing — treating the symptom (slow tasks) instead of fixing the root cause (data skew or undersized executors).</div>
       </div>
       <div class="analyzer-card">
         <div class="ac-header"><span class="ac-name">StageFailureAnalyzer</span><span class="ac-cat cat-reliability">reliability</span></div>
-        <div class="ac-signal">Stage retried (attempt &gt; 0) with failure reason, or task failure rate &gt; 5% in a stage.</div>
+        <div class="ac-signal">Stage retried (attempt &gt; 0) with a failure reason, or task failure rate &gt; 5% in a stage — surfaces OOM errors, network failures, and data issues.</div>
       </div>
       <div class="analyzer-card">
         <div class="ac-header"><span class="ac-name">MemoryPressureAnalyzer</span><span class="ac-cat cat-reliability">reliability</span></div>
-        <div class="ac-signal">GC &gt; 10% and disk spill &gt; 100 MB co-occurring in the same stage — the executor heap is genuinely undersized.</div>
+        <div class="ac-signal">GC &gt; 10% and disk spill &gt; 100 MB co-occurring in the same stage — the executor heap is genuinely undersized for the working set.</div>
       </div>
       <div class="analyzer-card">
         <div class="ac-header"><span class="ac-name">StageParallelismAnalyzer</span><span class="ac-cat cat-io">io</span></div>
-        <div class="ac-signal">Stage tasks &lt; 50% of available executor cores on a stage &gt; 10s — most cores idle, wall time longer than necessary.</div>
+        <div class="ac-signal">Stage tasks &lt; 50% of available executor cores on a stage &gt; 10 s (most cores idle), or entire stage runs as a single task — wall time longer than necessary.</div>
       </div>
       <div class="analyzer-card">
         <div class="ac-header"><span class="ac-name">LongStageAnalyzer</span><span class="ac-cat cat-reliability">reliability</span></div>
-        <div class="ac-signal">Stage duration &gt; 5× the median stage duration in its job — one stage serializes all downstream stages.</div>
+        <div class="ac-signal">Stage duration &gt; 5× the median stage duration in its job — one stage serializes all downstream stages and dominates job wall time.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">PartitionImbalanceAnalyzer</span><span class="ac-cat cat-io">io</span></div>
+        <div class="ac-signal">Input partition p95/p50 size ratio &gt; 3× (warns at 5×) — a few fat partitions become the bottleneck while most tasks finish quickly.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">SchedulerDelayAnalyzer</span><span class="ac-cat cat-config">config</span></div>
+        <div class="ac-signal">Median task launch delay &gt; 2 s after stage submission — tasks waiting idle before first execution. Caused by locality wait, busy executors, or driver GC.</div>
+      </div>
+      <div class="analyzer-card">
+        <div class="ac-header"><span class="ac-name">CriticalPathAnalyzer</span><span class="ac-cat cat-plan">plan</span></div>
+        <div class="ac-signal">DAG critical path (via stage parentIds) ≥ 85% of app wall time across ≥ 3 sequential stages — adding executors will not reduce this; the serial dependency chain must be shortened.</div>
       </div>
     </div>
   </div>
@@ -327,9 +388,10 @@
     <table class="config-table" style="margin-bottom:40px">
       <thead><tr><th>Property</th><th>Default</th><th>Values</th><th>Description</th></tr></thead>
       <tbody>
-        <tr><td><code>spark.sparklens.output</code></td><td class="def">off</td><td>off · text · json · html</td><td>Output format. <code>off</code> is silent unless <code>fail.on</code> is set.</td></tr>
-        <tr><td><code>spark.sparklens.report.path</code></td><td class="def">(stdout)</td><td>local path, hdfs://, s3://…</td><td>Write report to a file instead of stdout. Supports any Hadoop-compatible filesystem.</td></tr>
-        <tr><td><code>spark.sparklens.fail.on</code></td><td class="def">(none)</td><td>critical · warning · info</td><td>Throw <code>RuntimeException</code> at app end if issues at this severity or above are found.</td></tr>
+        <tr><td><code>spark.sparklens.output</code></td><td class="def">off</td><td>off · text · json · html · log — comma-separated for multiple</td><td>Output format(s). <code>off</code> is silent unless <code>fail.on</code> is set. Example: <code>text,json</code></td></tr>
+        <tr><td><code>spark.sparklens.report.path</code></td><td class="def">(stdout)</td><td>local path, hdfs://, s3://…</td><td>Write report to a file. Supports any Hadoop-compatible filesystem. With multiple formats each gets its own extension (<code>.txt</code>, <code>.json</code>, <code>.html</code>).</td></tr>
+        <tr><td><code>spark.sparklens.report.path.&lt;fmt&gt;</code></td><td class="def">—</td><td>path per format</td><td>Format-specific path override — highest priority. Available for <code>.text</code> <code>.json</code> <code>.html</code> <code>.log</code>.</td></tr>
+        <tr><td><code>spark.sparklens.fail.on</code></td><td class="def">(none)</td><td>critical · warning · info</td><td>Throw <code>RuntimeException</code> at app end if issues at this severity or above are found. Exit code is non-zero — CI pipeline fails automatically.</td></tr>
       </tbody>
     </table>
 
@@ -358,23 +420,24 @@ spark-submit \
       </div>
       <div>
         <h3 style="font-size:15px;font-weight:700;margin-bottom:10px">Save JSON report as CI artifact</h3>
-        <div class="code-block" style="font-size:12px"><span class="cb-comment"># Parse the JSON in a subsequent step</span>
+        <div class="code-block" style="font-size:12px"><span class="cb-comment"># Parse in a subsequent step or upload to S3</span>
 spark-submit \
-  <span class="cb-flag">--conf</span> <span class="cb-val">spark.sparklens.output=json</span> \
-  <span class="cb-flag">--conf</span> <span class="cb-val">spark.sparklens.report.path=/tmp/report.json</span> \
+  <span class="cb-flag">--conf</span> <span class="cb-val">spark.sparklens.output=text,json</span> \
+  <span class="cb-flag">--conf</span> <span class="cb-val">spark.sparklens.report.path=/tmp/report</span> \
   myJob.jar
 
-<span class="cb-comment"># health_score, issue_count, issues[].severity…</span></div>
+<span class="cb-comment"># produces /tmp/report.txt and /tmp/report.json
+# health_score, total_estimated_savings_ms, top_actions…</span></div>
       </div>
     </div>
 
     <h3 style="font-size:18px;font-weight:700;margin:40px 0 8px">Health score</h3>
-    <p style="font-size:14px;color:#64748b;margin-bottom:24px">Deducted per issue, floored at 0. Per-category caps prevent a flood of config warnings from masking genuine criticals.</p>
+    <p style="font-size:14px;color:#64748b;margin-bottom:24px">Flat deduction per issue, floored at 0. A single CartesianProduct (−30) always scores worse than five config warnings (−50 → but likely −50 is still a 50/100 score showing both matter).</p>
     <div class="score-cards">
       <div class="score-card"><div class="sc-val c-ok">100</div><div class="sc-lbl">Perfect</div><div class="sc-desc">No issues detected</div></div>
-      <div class="score-card"><div class="sc-val c-crit">−30</div><div class="sc-lbl">per Critical</div><div class="sc-desc">Cap: −100</div></div>
-      <div class="score-card"><div class="sc-val c-warn">−10</div><div class="sc-lbl">per Warning</div><div class="sc-desc">Cap: −25</div></div>
-      <div class="score-card"><div class="sc-val c-info">−2</div><div class="sc-lbl">per Info</div><div class="sc-desc">Cap: −10</div></div>
+      <div class="score-card"><div class="sc-val c-crit">−30</div><div class="sc-lbl">per Critical</div><div class="sc-desc">e.g. CartesianProduct, spill &gt; 1 GB</div></div>
+      <div class="score-card"><div class="sc-val c-warn">−10</div><div class="sc-lbl">per Warning</div><div class="sc-desc">e.g. skew, spill &gt; 100 MB, bad join</div></div>
+      <div class="score-card"><div class="sc-val c-info">−2</div><div class="sc-lbl">per Info</div><div class="sc-desc">e.g. config suggestions, small I/O</div></div>
     </div>
   </div>
 </section>
