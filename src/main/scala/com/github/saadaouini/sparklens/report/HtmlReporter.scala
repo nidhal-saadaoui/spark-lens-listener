@@ -11,6 +11,12 @@ object HtmlReporter extends Reporter {
     .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     .replace("\"", "&quot;")
 
+  private def fmtMs(ms: Long): String =
+    if (ms >= 3600000) f"${ms / 3600000.0}%.1fh"
+    else if (ms >= 60000) f"${ms / 60000.0}%.1fm"
+    else if (ms >= 1000)  f"${ms / 1000.0}%.1fs"
+    else s"${ms}ms"
+
   private def severityClass(issue: Issue): String = issue.severity match {
     case Critical => "critical"
     case Warning  => "warning"
@@ -27,6 +33,11 @@ object HtmlReporter extends Reporter {
       val cls   = severityClass(issue)
       val badge = issue.severity.label
 
+      val impactBadge = issue.estimatedImpact.map { imp =>
+        val timePart = imp.savedTimeMs.map(ms => s" &nbsp; ~${fmtMs(ms)} saved").getOrElse("")
+        s"""<span class="impact-badge">${e(imp.confidence)} confidence$timePart</span>"""
+      }.getOrElse("")
+
       val configBlock = issue.configFix.map(f =>
         s"""<div class="fix-label">config</div><pre class="fix-block">${e(f)}</pre>"""
       ).getOrElse("")
@@ -35,11 +46,24 @@ object HtmlReporter extends Reporter {
         s"""<div class="fix-label">code</div><pre class="fix-block">${e(f)}</pre>"""
       ).getOrElse("")
 
-      val stagePills = if (issue.affectedStages.nonEmpty)
+      val metricsBlock = if (issue.metrics.isEmpty) "" else {
+        val rows = issue.metrics.map { case (k, v) =>
+          s"""<tr><td class="mkey">${e(k)}</td><td class="mval">${e(v)}</td></tr>"""
+        }.mkString("\n")
+        s"""<div class="fix-label">metrics</div><table class="metrics-table">$rows</table>"""
+      }
+
+      val stagePills = if (issue.affectedStages.nonEmpty) {
+        val callSites = issue.affectedStages.flatMap { sid =>
+          app.stages.get(sid).map(s => sid -> s.callSite).filter(_._2.nonEmpty)
+        }.toMap
         "<div class=\"locations\">" +
-          issue.affectedStages.map(s => s"""<span class="pill">stage&nbsp;$s</span>""").mkString(" ") +
+          issue.affectedStages.map { sid =>
+            val tip = callSites.get(sid).map(cs => s""" title="${e(cs)}"""").getOrElse("")
+            s"""<span class="pill"$tip>stage&nbsp;$sid</span>"""
+          }.mkString(" ") +
           "</div>"
-      else ""
+      } else ""
 
       val jobPills = if (issue.affectedJobs.nonEmpty)
         "<div class=\"locations\">" +
@@ -50,12 +74,12 @@ object HtmlReporter extends Reporter {
       s"""<details class="issue $cls" open>
          |  <summary>
          |    <span class="badge">$badge</span>
-         |    <span class="issue-title">${e(issue.title)}</span>
+         |    <span class="issue-title">${e(issue.title)}</span>$impactBadge
          |  </summary>
          |  <div class="issue-body">
          |    <p class="desc">${e(issue.description)}</p>
          |    <p class="rec"><span class="arrow">&#8594;</span> ${e(issue.recommendation)}</p>
-         |    $configBlock$codeBlock$stagePills$jobPills
+         |    $configBlock$codeBlock$metricsBlock$stagePills$jobPills
          |  </div>
          |</details>""".stripMargin
     }.mkString("\n")
@@ -122,5 +146,9 @@ object HtmlReporter extends Reporter {
       |  .fix-block{margin:0;background:#1e1e1e;color:#d4d4d4;padding:10px 12px;border-radius:4px;font-size:12px;overflow-x:auto;white-space:pre;line-height:1.5;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace}
       |  .locations{margin-top:10px;display:flex;flex-wrap:wrap;gap:5px}
       |  .pill{font-size:11px;background:#fff;border:1px solid #d1d5db;border-radius:4px;padding:2px 7px;color:#374151;font-family:'SFMono-Regular',Consolas,monospace}
-      |  .no-issues{color:#15803d;font-weight:600;font-size:15px}""".stripMargin
+      |  .no-issues{color:#15803d;font-weight:600;font-size:15px}
+      |  .impact-badge{font-size:11px;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;border-radius:4px;padding:2px 7px;margin-left:8px;font-weight:500}
+      |  .metrics-table{border-collapse:collapse;margin:8px 0;font-size:12px;font-family:'SFMono-Regular',Consolas,monospace}
+      |  .metrics-table .mkey{color:#6b7280;padding:2px 10px 2px 0;white-space:nowrap}
+      |  .metrics-table .mval{color:#111;font-weight:600;padding:2px 0}""".stripMargin
 }

@@ -96,10 +96,13 @@ object JsonReporter extends Reporter {
     val topActPart = if (topActions.isEmpty) "[]"
                      else s"[\n    $topActionsJson\n  ]"
 
+    // Schema: see https://github.com/nidhal-saadaoui/spark-lens-listener/blob/main/docs/report-schema.md
     s"""{
+       |  "spark_lens_version": "${com.github.saadaouini.sparklens.BuildInfo.version}",
        |  "app_id": "${esc(app.appId)}",
        |  "app_name": "${esc(app.appName)}",
        |  "spark_version": "${esc(app.sparkVersion)}",
+       |  "duration_ms": ${app.durationMs.getOrElse(-1L)},
        |  "health_score": $score,
        |  "issue_count": ${issues.size},
        |  "total_estimated_savings_ms": $totalMs,

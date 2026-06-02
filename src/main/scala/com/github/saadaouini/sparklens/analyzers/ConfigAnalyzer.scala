@@ -85,6 +85,110 @@ object ConfigAnalyzer extends Analyzer {
       )
     }
 
+    // ── shuffle.file.buffer ──────────────────────────────────────────────────
+    // Default 32k means Spark flushes the shuffle write buffer to disk every 32 KB.
+    // At 32k Spark does ~30× more I/O syscalls than at 1 MB for a 30 MB shuffle file.
+    val shuffleBuf = getOrElse("spark.shuffle.file.buffer", "32k")
+    val shuffleBufKb = parseKilobytes(shuffleBuf).getOrElse(32L)
+    if (shuffleBufKb < 64L) {
+      issues += Issue(
+        id              = "config-small-shuffle-buffer",
+        severity        = Info,
+        category        = "config",
+        title           = s"Small Shuffle Write Buffer ($shuffleBuf) — Excessive Disk Syscalls",
+        description     = s"spark.shuffle.file.buffer=${shuffleBuf} causes Spark to flush the shuffle write buffer to disk too frequently, adding I/O overhead for every shuffle-heavy stage.",
+        recommendation  = "Increase to at least 1 MB. This reduces the number of syscalls on each shuffle write without increasing memory use significantly (one buffer per active output partition, default 200).",
+        configFix       = Some("spark.shuffle.file.buffer=1m"),
+        estimatedImpact = Some(configRisk),
+      )
+    }
+
+    // ── CBO histogram statistics ─────────────────────────────────────────────
+    if (getOrElse("spark.sql.statistics.histogram.enabled", "false").toLowerCase != "true") {
+      issues += Issue(
+        id              = "config-cbo-histogram-disabled",
+        severity        = Info,
+        category        = "config",
+        title           = "CBO Column Histograms Disabled — Join Order May Be Suboptimal",
+        description     = "Without column histograms, the cost-based optimizer uses only row count and total size to estimate selectivity. This can lead to poor join ordering and missed broadcast opportunities for skewed distributions.",
+        recommendation  = "Enable histograms and rerun ANALYZE TABLE after enabling.",
+        configFix       = Some(
+          "spark.sql.statistics.histogram.enabled=true\n" +
+          "-- then: ANALYZE TABLE my_table COMPUTE STATISTICS FOR ALL COLUMNS"
+        ),
+        estimatedImpact = Some(configRisk),
+      )
+    }
+
+    // ── task.maxFailures ─────────────────────────────────────────────────────
+    val maxFailures = scala.util.Try(getOrElse("spark.task.maxFailures", "4").toInt).getOrElse(4)
+    if (maxFailures < 3) {
+      issues += Issue(
+        id              = "config-low-task-max-failures",
+        severity        = Warning,
+        category        = "config",
+        title           = s"Low spark.task.maxFailures ($maxFailures) — Transient Errors Will Abort Jobs",
+        description     = s"With maxFailures=$maxFailures, a task that fails due to a transient network error, GC pause, or preempted executor will abort the entire job with as few as $maxFailures attempts. Cloud environments and shared clusters typically need 4–8.",
+        recommendation  = "Raise to at least 4. In cloud environments with spot/preemptible instances, consider 8.",
+        configFix       = Some("spark.task.maxFailures=4"),
+        estimatedImpact = Some(configRisk),
+      )
+    }
+
+    // ── locality.wait ────────────────────────────────────────────────────────
+    val localityWait = getOrElse("spark.locality.wait", "3s")
+    val localityWaitMs = parseDurationMs(localityWait).getOrElse(3000L)
+    if (localityWaitMs > 5000L) {
+      issues += Issue(
+        id              = "config-high-locality-wait",
+        severity        = Info,
+        category        = "config",
+        title           = s"High spark.locality.wait ($localityWait) — Tasks May Be Delayed",
+        description     = s"Spark waits up to ${localityWait} for a data-local executor slot before relaxing locality. In dynamic or heavily loaded clusters this can stall task launch for seconds per stage.",
+        recommendation  = "Reduce to 1s or less. Modern cloud storage (S3, GCS, ADLS) has uniform access time so data-locality optimisation provides no benefit and only adds scheduling delay.",
+        configFix       = Some("spark.locality.wait=1s"),
+        estimatedImpact = Some(configRisk),
+      )
+    }
+
+    // ── reducer.maxReqsInFlight ──────────────────────────────────────────────
+    val maxReqs = getOrElse("spark.reducer.maxReqsInFlight", "Int.MaxValue")
+    val maxReqsVal = if (maxReqs == "Int.MaxValue") Int.MaxValue
+                     else scala.util.Try(maxReqs.toInt).getOrElse(Int.MaxValue)
+    val totalCores = app.executors.values.map(_.totalCores).sum
+    // Rule of thumb: if more than 1000 concurrent fetch requests possible, overwhelm shuffle service
+    if (maxReqsVal == Int.MaxValue && totalCores > 200) {
+      issues += Issue(
+        id              = "config-max-reqs-in-flight",
+        severity        = Info,
+        category        = "config",
+        title           = "Unlimited Shuffle Fetch Requests — Risk of OOM on Large Clusters",
+        description     = s"With $totalCores cores and spark.reducer.maxReqsInFlight unlimited, a shuffle stage can open thousands of simultaneous network connections, overwhelming the shuffle service and causing reducer OOM or request timeouts.",
+        recommendation  = "Cap concurrent fetch requests to prevent connection storm. A value of 500–1000 is safe for most clusters.",
+        configFix       = Some("spark.reducer.maxReqsInFlight=500"),
+        estimatedImpact = Some(configRisk),
+      )
+    }
+
     issues.toSeq
+  }
+
+  private def parseKilobytes(s: String): Option[Long] = {
+    val lower = s.trim.toLowerCase
+    scala.util.Try {
+      if      (lower.endsWith("m")) lower.dropRight(1).toLong * 1024L
+      else if (lower.endsWith("k")) lower.dropRight(1).toLong
+      else                          lower.toLong / 1024L
+    }.toOption
+  }
+
+  private def parseDurationMs(s: String): Option[Long] = {
+    val lower = s.trim.toLowerCase
+    scala.util.Try {
+      if      (lower.endsWith("ms")) lower.dropRight(2).toLong
+      else if (lower.endsWith("s"))  lower.dropRight(1).toLong * 1000L
+      else if (lower.endsWith("m"))  lower.dropRight(1).toLong * 60000L
+      else                           lower.toLong
+    }.toOption
   }
 }

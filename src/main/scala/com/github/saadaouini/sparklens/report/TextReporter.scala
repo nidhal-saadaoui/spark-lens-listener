@@ -42,8 +42,10 @@ object TextReporter extends Reporter {
       else s"${ms}ms"
 
     // ── Priority Issues — top 3 by estimated savings ──────────────────────────
+    // Sort by absolute savings so the most impactful fix leads, regardless of severity.
     val ranked = issues
       .filter(i => i.estimatedImpact.flatMap(_.savedTimeMs).exists(_ >= 1000L))
+      .sortBy(i => -i.estimatedImpact.flatMap(_.savedTimeMs).getOrElse(0L))
       .take(3)
     if (ranked.nonEmpty) {
       sb.append("\n  Priority fixes (estimated savings per run):\n")

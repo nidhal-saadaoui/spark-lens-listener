@@ -55,17 +55,23 @@ object ExecutorSizingAnalyzer extends Analyzer {
     // ── 1. Executor memory analysis ───────────────────────────────────────────
     // Only consider stages with real duration and peak memory data.
     val longStages = app.stages.values.filter(s => s.durationMs > 5000L && s.avgPeakExecutionMemory > 0)
-    val stagePeaks = longStages.map(_.avgPeakExecutionMemory).toSeq
+    // Use p95 of task-sample peaks when available; fall back to avg when the task
+    // sample is empty (only exact aggregates recorded).
+    val stagePeaks = longStages.map { s =>
+      val sorted = s.tasks.map(_.metrics.peakExecutionMemory).filter(_ > 0).sorted
+      if (sorted.nonEmpty) percentile(sorted, 95) else s.avgPeakExecutionMemory
+    }.toSeq
 
     if (stagePeaks.nonEmpty && executorMemory.isDefined) {
       val currentMem    = executorMemory.get
       val execMemPool   = (currentMem * memFraction).toLong  // execution+storage pool
-      val maxPeakPerTask = stagePeaks.max
+      // p95 task peak across all long stages — more realistic than max(avg).
+      val p95PeakPerTask = stagePeaks.max
 
-      // Worst-case memory demand: all coresPerExec tasks simultaneously at peak.
-      // In practice the unified memory model lets tasks share the pool, but when
-      // all tasks are in their peak phase (e.g., HashAggregate build) this is real.
-      val peakTotalDemand = maxPeakPerTask * coresPerExec
+      // Concurrent memory demand: p95 task peak × cores per executor.
+      // This is a realistic worst-case (not all tasks hit peak simultaneously,
+      // but a few tasks at the heavy tail can).
+      val peakTotalDemand = p95PeakPerTask * coresPerExec
 
       // Required executor memory: peak demand / memFraction + standard overhead (384 MB min).
       val overheadBytes = math.max(
@@ -94,18 +100,18 @@ object ExecutorSizingAnalyzer extends Analyzer {
           recommendation  =
             s"Raise spark.executor.memory to ${fmtGiB(recommended)}. " +
             s"This provides ${fmtBytes((recommended * memFraction).toLong)} execution pool " +
-            s"for $coresPerExec concurrent tasks averaging ${fmtBytes(maxPeakPerTask)} each. " +
-            s"Alternatively, reduce spark.executor.cores to ${ math.max(1, (execMemPool * 0.8 / maxPeakPerTask).toInt) } " +
+            s"for $coresPerExec concurrent tasks averaging ${fmtBytes(p95PeakPerTask)} each. " +
+            s"Alternatively, reduce spark.executor.cores to ${ math.max(1, (execMemPool * 0.8 / p95PeakPerTask).toInt) } " +
             s"to lower the simultaneous memory demand.",
           configFix       = Some(
             s"spark.executor.memory=${fmtGiB(recommended)}\n" +
             s"# or reduce cores to lower concurrent peak demand:\n" +
-            s"# spark.executor.cores=${math.max(1, (execMemPool * 0.8 / maxPeakPerTask).toInt)}"
+            s"# spark.executor.cores=${math.max(1, (execMemPool * 0.8 / p95PeakPerTask).toInt)}"
           ),
           metrics         = Map(
             "current_executor_memory" -> fmtBytes(currentMem),
             "execution_pool"          -> fmtBytes(execMemPool),
-            "peak_task_memory"        -> fmtBytes(maxPeakPerTask),
+            "p95_task_memory"         -> fmtBytes(p95PeakPerTask),
             "peak_concurrent_demand"  -> fmtBytes(peakTotalDemand),
             "recommended_memory"      -> fmtGiB(recommended),
             "cores_per_executor"      -> coresPerExec.toString,
@@ -124,7 +130,7 @@ object ExecutorSizingAnalyzer extends Analyzer {
           category        = "config",
           title           = s"Executor Memory Over-Provisioned — only $utilizationPct% of execution pool used",
           description     =
-            s"Tasks averaged ${fmtBytes(maxPeakPerTask)} peak memory per task " +
+            s"Tasks averaged ${fmtBytes(p95PeakPerTask)} peak memory per task " +
             s"($coresPerExec core(s) per executor → ${fmtBytes(peakTotalDemand)} concurrent demand) " +
             s"but the execution pool is ${fmtBytes(execMemPool)}. " +
             s"${fmtDouble(100 - utilizationPct.toDouble, 0)}% of executor memory is unused.",
@@ -136,7 +142,7 @@ object ExecutorSizingAnalyzer extends Analyzer {
           configFix       = Some(s"spark.executor.memory=${fmtGiB(recommended)}"),
           metrics         = Map(
             "current_executor_memory"  -> fmtBytes(currentMem),
-            "peak_task_memory"         -> fmtBytes(maxPeakPerTask),
+            "peak_task_memory"         -> fmtBytes(p95PeakPerTask),
             "peak_concurrent_demand"   -> fmtBytes(peakTotalDemand),
             "execution_pool_used_pct"  -> utilizationPct,
             "recommended_memory"       -> fmtGiB(recommended),

@@ -10,6 +10,10 @@ Deliberately generates detectable patterns for the CI verification step:
   6. Cartesian product — triggers PlanAnalyzer (Critical)
   7. CollectLimit — triggers DriverBottleneckAnalyzer
   8. Python UDF — triggers UdfAnalyzer
+  9. Single-task stage — triggers StageParallelismAnalyzer
+ 10. Write 30 small output partitions — triggers OutputSmallFilesAnalyzer
+ 11. Read 30 small parquet files — triggers SmallFilesAnalyzer
+ 12. I/O-bound read of 1M-row parquet — triggers IoClassifierAnalyzer
 """
 
 from pyspark.sql import SparkSession
@@ -122,6 +126,40 @@ from pyspark.sql.types import LongType
 double_id = udf(lambda x: x * 2, LongType())
 spark.range(10_000).withColumn("doubled", double_id(F.col("id"))).agg(F.sum("doubled")).collect()
 print("   udf job done")
+
+# ── Lower thresholds so patterns fire reliably on fast CI hardware ────────────
+spark.conf.set("spark.sparklens.stageParallelism.singleTaskMinMs", "200")
+spark.conf.set("spark.sparklens.io.minDurationMs",                  "500")
+spark.conf.set("spark.sparklens.io.ioFloorMbps",                    "0.1")
+
+# ── 9. Single-task stage → StageParallelismAnalyzer ──────────────────────────
+# repartition(1) collapses all data to one partition → 1-task aggregation stage.
+print(">> Job 9: repartition(1) aggregation — single-task stage")
+spark.range(2_000_000).repartition(1).agg(F.sum("id")).collect()
+print("   single-task job done")
+
+# ── 10. Many small output files → OutputSmallFilesAnalyzer ───────────────────
+# Write 30 tiny files (~10 KB each) so the analyzer flags small output partitions.
+_small_out = "/tmp/spark-lens-small-files-out.parquet"
+print(">> Job 10: repartition(30).write — 30 small output files")
+spark.range(30_000).withColumn("v", F.rand(seed=42)) \
+    .repartition(30).write.mode("overwrite").parquet(_small_out)
+print("   small-output write done")
+
+# ── 11. Read 30 small files → SmallFilesAnalyzer ─────────────────────────────
+print(">> Job 11: read back 30 small parquet files")
+spark.read.parquet(_small_out).agg(F.count("*")).collect()
+print("   small-files read done")
+
+# ── 12. I/O-bound read → IoClassifierAnalyzer ────────────────────────────────
+# Write a 1M-row parquet (~15 MB on disk) then read it.  With the lowered
+# ioFloorMbps=0.1 threshold, even a fast local SSD will trigger the classifier.
+_iopath = "/tmp/spark-lens-io-test.parquet"
+print(">> Job 12a: write 1M-row parquet for I/O-bound test")
+spark.range(1_000_000).withColumn("v", F.rand(seed=7)).write.mode("overwrite").parquet(_iopath)
+print(">> Job 12b: read 1M-row parquet (IoClassifierAnalyzer)")
+spark.read.parquet(_iopath).agg(F.sum("v")).collect()
+print("   io-bound job done")
 
 print("\n=== jobs complete — spark-lens report follows ===\n")
 spark.stop()

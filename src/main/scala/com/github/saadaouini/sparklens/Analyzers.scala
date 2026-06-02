@@ -28,6 +28,9 @@ object Analyzers {
     MemoryPressureAnalyzer,
     StageParallelismAnalyzer,
     LongStageAnalyzer,
+    PartitionImbalanceAnalyzer,
+    SchedulerDelayAnalyzer,
+    CriticalPathAnalyzer,
   )
 
   def runAll(app: SparkAppModel): Seq[Issue] =
@@ -48,10 +51,12 @@ object Analyzers {
         val extra     = sorted.size - 1
         val allStages = sorted.flatMap(_.affectedStages).distinct.sorted
         val allJobs   = sorted.flatMap(_.affectedJobs).distinct.sorted
-        val suffix    =
-          if (allStages.nonEmpty)    s" [+$extra more stages]"
-          else if (allJobs.nonEmpty) s" [+$extra more queries]"
-          else                       s" [+$extra more]"
+        val suffix = (allStages.nonEmpty, allJobs.nonEmpty) match {
+          case (true,  true)  => s" [+$extra more]"           // both present: use generic
+          case (true,  false) => s" [+$extra more stages]"
+          case (false, true)  => s" [+$extra more queries]"
+          case _              => s" [+$extra more]"
+        }
         Seq(rep.copy(
           id             = trailingId.replaceFirstIn(rep.id, ""),
           title          = rep.title + suffix,

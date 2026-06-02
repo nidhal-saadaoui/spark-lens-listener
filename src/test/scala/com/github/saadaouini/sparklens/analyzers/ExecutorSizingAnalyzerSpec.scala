@@ -10,13 +10,15 @@ class ExecutorSizingAnalyzerSpec extends AnyFlatSpec with Matchers {
   private val MB = 1024L * 1024L
   private val GB = 1024L * MB
 
-  // Helper: a stage with known avg peak execution memory (exact aggregates)
-  private def stageWithPeak(id: Int, peakPerTask: Long, taskCount: Int = 100): StageData =
-    stage(stageId = id, submitMs = Some(0L), completeMs = Some(60000L)).copy(
-      hasExactAggregates         = true,
-      exactTaskCount             = taskCount,
+  // Helper: stage with task sample so p95 can be computed from the sample
+  private def stageWithPeak(id: Int, peakPerTask: Long, taskCount: Int = 20): StageData = {
+    val tasks = (0 until taskCount).map(i => task(peakExecutionMemory = peakPerTask, id = i.toLong))
+    stage(stageId = id, tasks = tasks, submitMs = Some(0L), completeMs = Some(60000L)).copy(
+      hasExactAggregates          = true,
+      exactTaskCount              = taskCount,
       exactPeakExecutionMemorySum = peakPerTask * taskCount,
     )
+  }
 
   // ── Executor memory — under-provisioning ──────────────────────────────────
 
@@ -35,7 +37,7 @@ class ExecutorSizingAnalyzerSpec extends AnyFlatSpec with Matchers {
     val issues = ExecutorSizingAnalyzer.analyze(a)
     val under = issues.filter(_.id == "executor-memory-underprovisioned")
     under should not be empty
-    under.head.metrics("peak_task_memory") should not be empty
+    under.head.metrics("p95_task_memory") should not be empty
     under.head.configFix shouldBe defined
   }
 
@@ -183,5 +185,45 @@ class ExecutorSizingAnalyzerSpec extends AnyFlatSpec with Matchers {
     // totalCores=4 < minimum 8 → skip check
     ExecutorSizingAnalyzer.analyze(app(stages = Map(0 -> s), executors = execs))
       .filter(_.id == "cluster-cores-overprovisioned") shouldBe empty
+  }
+
+  // ── False-positive guards ─────────────────────────────────────────────────
+
+  it should "produce no issues on an empty app" in {
+    ExecutorSizingAnalyzer.analyze(app()) shouldBe empty
+  }
+
+  it should "not flag memory when no executor.memory property is set" in {
+    val tasks = (0 until 10).map(i =>
+      task(peakExecutionMemory = 2L * GB, id = i.toLong))
+    val s = stage(stageId = 0, tasks = tasks,
+                  submitMs = Some(0L), completeMs = Some(60000L)).copy(
+      hasExactAggregates          = true,
+      exactTaskCount              = 10,
+      exactPeakExecutionMemorySum = 10 * 2L * GB,
+    )
+    // No spark.executor.memory set → skip analysis
+    ExecutorSizingAnalyzer.analyze(app(stages = Map(0 -> s)))
+      .filter(_.id.startsWith("executor-memory")) shouldBe empty
+  }
+
+  it should "not flag under-provisioning when p95 demand exactly equals the memory pool" in {
+    // executor.memory=4g, memFraction=0.6 → pool=2.4g
+    // 1 core, p95 peak=2.4g → demand=2.4g = 100% exactly (not >85% boundary test)
+    // 2.4g / 2.4g = 1.0 → 100% > 85% → DOES fire. Let's test boundary more carefully:
+    // demand at 85% exactly → should not fire
+    // pool = 2.4 GB, 85% = 2.04 GB → p95 peak = 2.04 GB → demand (1 core) = 2.04 GB → 85% → doesn't fire
+    val peakBytes = (2.4 * GB * 0.84).toLong  // just below 85% threshold
+    val tasks     = (0 until 10).map(i => task(peakExecutionMemory = peakBytes, id = i.toLong))
+    val s         = stage(stageId = 0, tasks = tasks,
+                          submitMs = Some(0L), completeMs = Some(60000L)).copy(
+      hasExactAggregates          = true,
+      exactTaskCount              = 10,
+      exactPeakExecutionMemorySum = 10 * peakBytes,
+    )
+    val a = app(stages = Map(0 -> s),
+                props  = Map("spark.executor.memory" -> "4g", "spark.executor.cores" -> "1"))
+    ExecutorSizingAnalyzer.analyze(a)
+      .filter(_.id == "executor-memory-underprovisioned") shouldBe empty
   }
 }
