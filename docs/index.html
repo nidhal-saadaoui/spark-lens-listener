@@ -26,9 +26,9 @@
   .hero h1 { font-size: clamp(32px, 5vw, 56px); font-weight: 800; line-height: 1.15; letter-spacing: -.5px; margin-bottom: 20px }
   .hero h1 span { color: #f97316 }
   .hero p { font-size: 18px; color: #94a3b8; max-width: 560px; margin: 0 auto 36px }
-  .hero-cmd { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 20px 28px; text-align: left; font-size: 13px; font-family: 'SFMono-Regular', Consolas, monospace; line-height: 1.9; color: #94a3b8; max-width: 660px; margin: 0 auto 36px; overflow-x: auto }
-  .hero-cmd .cmd-line::before { content: '$ '; color: #475569 }
-  .hero-cmd .hl { color: #f8fafc }
+  .hero-cmd { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 20px 28px; text-align: left; font-size: 13px; font-family: 'SFMono-Regular', Consolas, monospace; line-height: 1.9; color: #94a3b8; max-width: 700px; margin: 0 auto 36px; overflow-x: auto; white-space: pre }
+  .hero-cmd .prompt { color: #475569 }
+  .hero-cmd .hl  { color: #f8fafc }
   .hero-cmd .flag { color: #7dd3fc }
   .hero-cmd .val { color: #86efac }
   .hero-cmd .key { color: #f8fafc }
@@ -155,14 +155,11 @@
     <div class="hero-badge">Apache Spark 3.x · Scala 2.12 / 2.13</div>
     <h1>Zero-config Spark<br><span>performance analyzer</span></h1>
     <p>Attach via <code style="background:rgba(255,255,255,.1);padding:2px 7px;border-radius:4px;font-size:16px">spark.extraListeners</code> — get actionable recommendations in your logs at job end. No Python, no extra services, no code changes.</p>
-    <div class="hero-cmd">
-      <div class="cmd-line"><span class="hl">spark-submit</span> \</div>
-      <div>  <span class="flag">--packages</span> <span class="val">com.github.saadaouini:spark-lens_2.12:0.2.0</span> \</div>
-      <div>  <span class="flag">--conf</span> <span class="key">spark.extraListeners</span>=\</div>
-      <div>          <span class="cls">com.github.saadaouini.sparklens.SparkLensListener</span> \</div>
-      <div>  <span class="flag">--conf</span> <span class="key">spark.sparklens.output</span>=<span class="val">text</span> \</div>
-      <div>  <span class="hl">myJob.jar</span></div>
-    </div>
+    <div class="hero-cmd"><span class="prompt">$</span> <span class="hl">spark-submit</span> \
+  <span class="flag">--packages</span> <span class="val">com.github.saadaouini:spark-lens_2.12:0.2.0</span> \
+  <span class="flag">--conf</span> <span class="key">spark.extraListeners</span>=<span class="cls">com.github.saadaouini.sparklens.SparkLensListener</span> \
+  <span class="flag">--conf</span> <span class="key">spark.sparklens.output</span>=<span class="val">text</span> \
+  <span class="hl">myJob.jar</span></div>
     <div class="hero-pills">
       <span class="pill-stat"><strong>26</strong> analyzers</span>
       <span class="pill-stat"><strong>4</strong> output formats</span>
