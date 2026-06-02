@@ -262,7 +262,24 @@
 
     <h3 style="font-size:16px;font-weight:700;margin-bottom:12px;color:#374151">HTML report — interactive, collapsible issues with metrics and stage links</h3>
     <p style="font-size:13px;color:#64748b;margin-bottom:16px">Issues are grouped by type — e.g. <em>Disk Spill in Stage 3 [+4 more stages]</em> — so the report stays readable on large pipelines. Each issue shows its estimated impact badge, metrics table, and config/code fix blocks. Stage pills have callSite tooltips.</p>
-    <iframe class="preview-frame" src="assets/report-sample.html" title="spark-lens HTML report sample"></iframe>
+    <iframe class="preview-frame" src="assets/report-sample.html" title="spark-lens HTML report sample" style="margin-bottom:40px"></iframe>
+
+    <h3 style="font-size:16px;font-weight:700;margin-bottom:12px;color:#374151">Log format — one structured line per issue, inline in the driver log</h3>
+    <p style="font-size:13px;color:#64748b;margin-bottom:16px">Use <code style="background:#f1f5f9;padding:1px 5px;border-radius:3px;font-family:monospace">spark.sparklens.output=log</code>. Each line is prefixed with <code style="background:#f1f5f9;padding:1px 5px;border-radius:3px;font-family:monospace">[spark-lens]</code> — grep or filter by this tag in Datadog, Splunk, CloudWatch, or any log aggregator. No separate file path needed.</p>
+    <div class="terminal-wrap">
+      <div class="terminal-bar">
+        <div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div>
+        <span>driver log (YARN / K8s / Databricks)</span>
+      </div>
+      <div class="terminal-body"><span class="t-dim">24/11/05 04:12:33 INFO SparkContext: Successfully stopped SparkContext</span>
+<span class="t-warn">[spark-lens]</span> SUMMARY  app=<span class="t-app">"daily-revenue-pipeline"</span> app_id=app-20241105-0042 spark=3.5.0 health=<span class="t-score">64</span> issues=5 critical=1 warning=2 info=2 duration=4.2m savings=<span class="t-save">6.1m/run</span>
+<span class="t-warn">[spark-lens]</span> <span class="t-crit">CRITICAL</span> id=spill-3 category=spill title=<span class="t-app">"Disk Spill in Stage 3 — 2.1 GB spilled [+2 more stages]"</span> savings=<span class="t-save">4.2m/run</span> fix=<span class="t-conf">"spark.executor.memory=8g"</span> stages=3,7,11
+<span class="t-warn">[spark-lens]</span> <span class="t-warn">WARNING </span> id=skew-warn-5 category=skew title=<span class="t-app">"Shuffle Hot-Key Skew in Stage 5"</span> savings=<span class="t-save">1.8m/run</span> fix=<span class="t-conf">"spark.sql.adaptive.skewJoin.enabled=true"</span> stages=5
+<span class="t-warn">[spark-lens]</span> <span class="t-warn">WARNING </span> id=config-java-serializer category=config title=<span class="t-app">"Java Serializer in Use — Switch to Kryo"</span> savings=<span class="t-save">45.0s/run</span> fix=<span class="t-conf">"spark.serializer=org.apache.spark.serializer.KryoSerializer"</span>
+<span class="t-warn">[spark-lens]</span> <span class="t-info">INFO    </span> id=config-aqe-disabled category=config title=<span class="t-app">"Adaptive Query Execution (AQE) Is Disabled"</span> fix=<span class="t-conf">"spark.sql.adaptive.enabled=true"</span>
+<span class="t-warn">[spark-lens]</span> <span class="t-info">INFO    </span> id=config-default-shuffle-partitions category=config title=<span class="t-app">"Default Shuffle Partitions (200) — May Be Too Few or Too Many"</span> fix=<span class="t-conf">"spark.sql.adaptive.enabled=true"</span>
+<span class="t-dim">24/11/05 04:12:33 INFO Utils: Shutdown hook called</span></div>
+    </div>
   </div>
 </section>
 
