@@ -1,6 +1,7 @@
 package com.github.saadaouini.sparklens
 
 import com.github.saadaouini.sparklens.report._
+import java.util.logging.{Level => JLevel}
 import org.apache.spark.{SPARK_VERSION, SparkConf}
 import org.apache.spark.scheduler._
 import org.apache.spark.sql.execution.ui.{
@@ -107,13 +108,23 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
     val issues = Analyzers.runAll(app)
 
     if (outputMode != "off") {
-      val reporter: Reporter = outputMode match {
-        case "json" => JsonReporter
-        case "html" => HtmlReporter
-        case _      => TextReporter
-      }
       try {
-        reporter.write(app, issues, reportPath)
+        outputMode match {
+          case "json" => JsonReporter.write(app, issues, reportPath)
+          case "html" => HtmlReporter.write(app, issues, reportPath)
+          case "log"  =>
+            if (reportPath.isDefined) {
+              // Path set → write formatted log lines to a file
+              LogReporter.write(app, issues, reportPath)
+            } else {
+              // No path → write each line through the Java logger so messages appear
+              // inline in the Spark driver log at the correct severity level.
+              LogReporter.renderLines(app, issues).foreach { case (level, line) =>
+                log.log(level, line)
+              }
+            }
+          case _ => TextReporter.write(app, issues, reportPath)
+        }
       } catch {
         case ex: Exception =>
           log.log(Level.WARNING, s"spark-lens: failed to write report: ${ex.getMessage}", ex)

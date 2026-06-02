@@ -106,7 +106,7 @@ All settings are optional and prefixed with `spark.sparklens.*`:
 
 | Property | Default | Values | Description |
 |---|---|---|---|
-| `spark.sparklens.output` | `off` | `off` `text` `json` `html` | Output format. `off` = silent unless `fail.on` is set |
+| `spark.sparklens.output` | `off` | `off` `text` `json` `html` `log` | Output format. `off` = silent unless `fail.on` is set |
 | `spark.sparklens.report.path` | *(stdout)* | local path or `hdfs://...` | Write report to a file instead of stdout |
 | `spark.sparklens.fail.on` | *(none)* | `critical` `warning` `info` | Throw at app end if issues at this severity or above are found |
 | `spark.sparklens.skew.warnP95Ratio` | `3.0` | double | p95/p50 task duration ratio threshold for skew warning |
