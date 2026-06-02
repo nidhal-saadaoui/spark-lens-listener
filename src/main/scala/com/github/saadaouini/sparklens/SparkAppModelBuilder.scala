@@ -50,23 +50,30 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
   private val MaxSampledTasksPerStage = 10000
 
   private class StageSummary {
-    var taskCount:               Int  = 0
-    var failedCount:             Int  = 0
-    var killedCount:             Int  = 0
-    var speculativeCount:        Int  = 0
-    var tasksWithInputBytes:     Int  = 0
-    var tasksWithOutputBytes:    Int  = 0
-    var totalExecutorRunTimeMs:  Long = 0L
-    var totalExecutorCpuTimeNs:  Long = 0L
-    var totalGcTimeMs:           Long = 0L
-    var totalInputBytes:         Long = 0L
-    var totalOutputBytes:        Long = 0L
-    var totalResultSize:         Long = 0L
-    var totalDiskSpillBytes:     Long = 0L
-    var totalMemorySpillBytes:   Long = 0L
-    var totalShuffleRemoteBytes: Long = 0L
-    var totalShuffleLocalBytes:  Long = 0L
-    var totalShuffleBytesWritten:Long = 0L
+    var taskCount:                    Int  = 0
+    var failedCount:                  Int  = 0
+    var killedCount:                  Int  = 0
+    var speculativeCount:             Int  = 0
+    var tasksWithInputBytes:          Int  = 0
+    var tasksWithOutputBytes:         Int  = 0
+    var totalExecutorRunTimeMs:       Long = 0L
+    var totalExecutorCpuTimeNs:       Long = 0L
+    var totalExecutorDeserializeTimeMs:Long= 0L
+    var totalGcTimeMs:                Long = 0L
+    var totalPeakExecutionMemorySum:  Long = 0L
+    var totalInputBytes:              Long = 0L
+    var totalInputRecords:            Long = 0L
+    var totalOutputBytes:             Long = 0L
+    var totalOutputRecords:           Long = 0L
+    var totalResultSize:              Long = 0L
+    var totalDiskSpillBytes:          Long = 0L
+    var totalMemorySpillBytes:        Long = 0L
+    var totalShuffleRemoteBytes:      Long = 0L
+    var totalShuffleLocalBytes:       Long = 0L
+    var totalShuffleBytesWritten:     Long = 0L
+    var totalShuffleFetchWaitTimeMs:  Long = 0L
+    var totalShuffleRecordsRead:      Long = 0L
+    var totalShuffleRecordsWritten:   Long = 0L
   }
 
   def onApplicationStart(e: SparkListenerApplicationStart): Unit = {
@@ -139,6 +146,16 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
     val key     = (info.stageId, info.attemptNumber())
     val rddNames       = info.rddInfos.map(_.name).filter(_.nonEmpty)
     val rddCachedNames = info.rddInfos.filter(_.isCached).map(_.name).toSet
+    val rddCacheInfos  = info.rddInfos.filter(_.name.nonEmpty).map { r =>
+      RddCacheInfo(
+        name             = r.name,
+        numPartitions    = r.numPartitions,
+        cachedPartitions = r.numCachedPartitions,
+        memSizeBytes     = r.memSize,
+        diskSizeBytes    = r.diskSize,
+        storageLevel     = r.storageLevel.description,
+      )
+    }
     stageRddNames(key)       = rddNames
     stageRddCachedNames(key) = rddCachedNames
     stageInfo(key) = StageData(
@@ -149,6 +166,8 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
       submissionTimeMs = info.submissionTime,
       rddNames         = rddNames,
       rddCachedNames   = rddCachedNames,
+      rddCacheInfos    = rddCacheInfos,
+      parentIds        = info.parentIds.toSeq,
       details          = info.details,
     )
     stageTasks.getOrElseUpdate(key, mutable.ArrayBuffer.empty)
@@ -181,17 +200,24 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
       speculative  = info.speculative,
       errorMessage = errorMessage,
       metrics = TaskMetrics(
-        executorRunTimeMs      = metrics.executorRunTime,
-        executorCpuTimeNs      = metrics.executorCpuTime,
-        jvmGcTimeMs            = metrics.jvmGCTime,
-        memoryBytesSpilled     = metrics.memoryBytesSpilled,
-        diskBytesSpilled       = metrics.diskBytesSpilled,
-        shuffleRemoteBytesRead = shufR.remoteBytesRead,
-        shuffleLocalBytesRead  = shufR.localBytesRead,
-        shuffleBytesWritten    = shufW.bytesWritten,
-        inputBytesRead         = inp.bytesRead,
-        outputBytesWritten     = out.bytesWritten,
-        resultSize             = metrics.resultSize,
+        executorRunTimeMs         = metrics.executorRunTime,
+        executorCpuTimeNs         = metrics.executorCpuTime,
+        executorDeserializeTimeMs = metrics.executorDeserializeTime,
+        jvmGcTimeMs               = metrics.jvmGCTime,
+        memoryBytesSpilled        = metrics.memoryBytesSpilled,
+        diskBytesSpilled          = metrics.diskBytesSpilled,
+        peakExecutionMemory       = metrics.peakExecutionMemory,
+        shuffleRemoteBytesRead    = shufR.remoteBytesRead,
+        shuffleLocalBytesRead     = shufR.localBytesRead,
+        shuffleBytesWritten       = shufW.bytesWritten,
+        shuffleFetchWaitTimeMs    = shufR.fetchWaitTime,
+        shuffleRecordsRead        = shufR.recordsRead,
+        shuffleRecordsWritten     = shufW.recordsWritten,
+        inputBytesRead            = inp.bytesRead,
+        inputRecordsRead          = inp.recordsRead,
+        outputBytesWritten        = out.bytesWritten,
+        outputRecordsWritten      = out.recordsWritten,
+        resultSize                = metrics.resultSize,
       ),
     )
 
@@ -205,17 +231,24 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
     if (info.speculative) s.speculativeCount  += 1
     if (inp.bytesRead > 0)    s.tasksWithInputBytes  += 1
     if (out.bytesWritten > 0) s.tasksWithOutputBytes += 1
-    s.totalExecutorRunTimeMs  += metrics.executorRunTime
-    s.totalExecutorCpuTimeNs  += metrics.executorCpuTime
-    s.totalGcTimeMs           += metrics.jvmGCTime
-    s.totalInputBytes         += inp.bytesRead
-    s.totalOutputBytes        += out.bytesWritten
-    s.totalResultSize         += metrics.resultSize
-    s.totalDiskSpillBytes     += metrics.diskBytesSpilled
-    s.totalMemorySpillBytes   += metrics.memoryBytesSpilled
-    s.totalShuffleRemoteBytes += shufR.remoteBytesRead
-    s.totalShuffleLocalBytes  += shufR.localBytesRead
-    s.totalShuffleBytesWritten+= shufW.bytesWritten
+    s.totalExecutorRunTimeMs          += metrics.executorRunTime
+    s.totalExecutorCpuTimeNs          += metrics.executorCpuTime
+    s.totalExecutorDeserializeTimeMs  += metrics.executorDeserializeTime
+    s.totalGcTimeMs                   += metrics.jvmGCTime
+    s.totalPeakExecutionMemorySum     += metrics.peakExecutionMemory
+    s.totalInputBytes                 += inp.bytesRead
+    s.totalInputRecords               += inp.recordsRead
+    s.totalOutputBytes                += out.bytesWritten
+    s.totalOutputRecords              += out.recordsWritten
+    s.totalResultSize                 += metrics.resultSize
+    s.totalDiskSpillBytes             += metrics.diskBytesSpilled
+    s.totalMemorySpillBytes           += metrics.memoryBytesSpilled
+    s.totalShuffleRemoteBytes         += shufR.remoteBytesRead
+    s.totalShuffleLocalBytes          += shufR.localBytesRead
+    s.totalShuffleBytesWritten        += shufW.bytesWritten
+    s.totalShuffleFetchWaitTimeMs     += shufR.fetchWaitTime
+    s.totalShuffleRecordsRead         += shufR.recordsRead
+    s.totalShuffleRecordsWritten      += shufW.recordsWritten
 
     // ── Collect per-task SQL metric updates for Exchange nodes ───────────────
     // AccumulableInfo.update is the per-task delta; we sum these later to get
@@ -259,6 +292,7 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
     val cachedAtCompletion = info.rddInfos.filter(_.isCached).map(_.name).toSet
     val mergedCachedNames  = stageRddCachedNames.getOrElse(key, Set.empty) ++ cachedAtCompletion
 
+    val existing = stageInfo.getOrElse(key, StageData(info.stageId, info.attemptNumber(), info.name, info.numTasks))
     val agg = stageAgg.get(key)
     stageInfo(key) = StageData(
       stageId          = info.stageId,
@@ -271,26 +305,35 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
       failureReason    = info.failureReason.filter(_.nonEmpty),
       rddNames         = stageRddNames.getOrElse(key, Nil),
       rddCachedNames   = mergedCachedNames,
+      rddCacheInfos    = existing.rddCacheInfos,
+      parentIds        = existing.parentIds,
       details          = info.details,
 
-      hasExactAggregates        = agg.isDefined,
-      exactTaskCount            = agg.map(_.taskCount).getOrElse(0),
-      exactFailedCount          = agg.map(_.failedCount).getOrElse(0),
-      exactKilledCount          = agg.map(_.killedCount).getOrElse(0),
-      exactSpeculativeCount     = agg.map(_.speculativeCount).getOrElse(0),
-      exactInputBytes           = agg.map(_.totalInputBytes).getOrElse(0L),
-      exactOutputBytes          = agg.map(_.totalOutputBytes).getOrElse(0L),
-      exactResultSize           = agg.map(_.totalResultSize).getOrElse(0L),
-      exactDiskSpillBytes       = agg.map(_.totalDiskSpillBytes).getOrElse(0L),
-      exactMemorySpillBytes     = agg.map(_.totalMemorySpillBytes).getOrElse(0L),
-      exactGcTimeMs             = agg.map(_.totalGcTimeMs).getOrElse(0L),
-      exactExecutorRunTimeMs    = agg.map(_.totalExecutorRunTimeMs).getOrElse(0L),
-      exactExecutorCpuTimeNs    = agg.map(_.totalExecutorCpuTimeNs).getOrElse(0L),
-      exactShuffleRemoteBytes   = agg.map(_.totalShuffleRemoteBytes).getOrElse(0L),
-      exactShuffleLocalBytes    = agg.map(_.totalShuffleLocalBytes).getOrElse(0L),
-      exactShuffleBytesWritten  = agg.map(_.totalShuffleBytesWritten).getOrElse(0L),
-      exactTasksWithInputBytes  = agg.map(_.tasksWithInputBytes).getOrElse(0),
-      exactTasksWithOutputBytes = agg.map(_.tasksWithOutputBytes).getOrElse(0),
+      hasExactAggregates               = agg.isDefined,
+      exactTaskCount                   = agg.map(_.taskCount).getOrElse(0),
+      exactFailedCount                 = agg.map(_.failedCount).getOrElse(0),
+      exactKilledCount                 = agg.map(_.killedCount).getOrElse(0),
+      exactSpeculativeCount            = agg.map(_.speculativeCount).getOrElse(0),
+      exactInputBytes                  = agg.map(_.totalInputBytes).getOrElse(0L),
+      exactInputRecords                = agg.map(_.totalInputRecords).getOrElse(0L),
+      exactOutputBytes                 = agg.map(_.totalOutputBytes).getOrElse(0L),
+      exactOutputRecords               = agg.map(_.totalOutputRecords).getOrElse(0L),
+      exactResultSize                  = agg.map(_.totalResultSize).getOrElse(0L),
+      exactDiskSpillBytes              = agg.map(_.totalDiskSpillBytes).getOrElse(0L),
+      exactMemorySpillBytes            = agg.map(_.totalMemorySpillBytes).getOrElse(0L),
+      exactGcTimeMs                    = agg.map(_.totalGcTimeMs).getOrElse(0L),
+      exactExecutorRunTimeMs           = agg.map(_.totalExecutorRunTimeMs).getOrElse(0L),
+      exactExecutorCpuTimeNs           = agg.map(_.totalExecutorCpuTimeNs).getOrElse(0L),
+      exactExecutorDeserializeTimeMs   = agg.map(_.totalExecutorDeserializeTimeMs).getOrElse(0L),
+      exactPeakExecutionMemorySum      = agg.map(_.totalPeakExecutionMemorySum).getOrElse(0L),
+      exactShuffleRemoteBytes          = agg.map(_.totalShuffleRemoteBytes).getOrElse(0L),
+      exactShuffleLocalBytes           = agg.map(_.totalShuffleLocalBytes).getOrElse(0L),
+      exactShuffleBytesWritten         = agg.map(_.totalShuffleBytesWritten).getOrElse(0L),
+      exactShuffleFetchWaitTimeMs      = agg.map(_.totalShuffleFetchWaitTimeMs).getOrElse(0L),
+      exactShuffleRecordsRead          = agg.map(_.totalShuffleRecordsRead).getOrElse(0L),
+      exactShuffleRecordsWritten       = agg.map(_.totalShuffleRecordsWritten).getOrElse(0L),
+      exactTasksWithInputBytes         = agg.map(_.tasksWithInputBytes).getOrElse(0),
+      exactTasksWithOutputBytes        = agg.map(_.tasksWithOutputBytes).getOrElse(0),
     )
 
     // Release raw accumulator memory. All data is now in stageInfo — holding it in
@@ -362,6 +405,7 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
       nodeName       = info.nodeName,
       simpleString   = info.simpleString,
       accumulatorIds = info.metrics.map(_.accumulatorId).toSeq,
+      metricNames    = info.metrics.map(m => m.accumulatorId -> m.name).toMap,
       children       = info.children.map(toPlanNode).toSeq,
     )
 

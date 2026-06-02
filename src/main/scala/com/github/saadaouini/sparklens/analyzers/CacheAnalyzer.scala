@@ -52,6 +52,29 @@ object CacheAnalyzer extends Analyzer {
           if stage.rddNames.contains(rddName)
         } yield stage.totalExecutorRunTimeMs).sum
         val redundantMs = if (jobs.size > 1) stageRunMs * (jobs.size - 1) / jobs.size else 0L
+        // Use rddCacheInfos (from onStageSubmitted) to provide size-aware advice.
+        val rddInfo = sortedJobs
+          .flatMap(id => app.jobs.get(id).toSeq)
+          .flatMap(j => j.stageIds.flatMap(sid => app.stages.get(sid).toSeq))
+          .flatMap(_.rddCacheInfos)
+          .find(_.name == rddName)
+
+        val sizeNote = rddInfo.map { info =>
+          val totalMem = info.memSizeBytes + info.diskSizeBytes
+          if (totalMem > 0) s" Cached size: ${fmtBytes(totalMem)}."
+          else if (info.numPartitions > 0) s" ${info.numPartitions} partitions."
+          else ""
+        }.getOrElse("")
+
+        val storageAdvice = rddInfo.map { info =>
+          if (info.storageLevel.contains("MEMORY_ONLY"))
+            "Use MEMORY_AND_DISK instead of MEMORY_ONLY to avoid full recomputation if an executor is lost or memory pressure evicts partitions."
+          else if (info.cachedPartitions < info.numPartitions && info.numPartitions > 0)
+            s"Only ${info.cachedPartitions} of ${info.numPartitions} partitions are cached — some partitions will be recomputed on access. Ensure enough executor memory to hold the full dataset."
+          else
+            "Call .cache() or .persist(StorageLevel.MEMORY_AND_DISK) before the first action, then .unpersist() when done."
+        }.getOrElse("Call .cache() or .persist(StorageLevel.MEMORY_AND_DISK) before the first action, then .unpersist() when done. Use MEMORY_AND_DISK instead of MEMORY_ONLY to avoid re-computation if an executor is lost.")
+
         val rddImpact   = EstimatedImpact(
           summary     = s"${jobs.size} scans of '${rddName.take(60)}' — ~${fmtMs(redundantMs)} wasted re-computation",
           savedTimeMs = timeOpt(redundantMs),
@@ -63,8 +86,8 @@ object CacheAnalyzer extends Analyzer {
           severity        = Warning,
           category        = "cache",
           title           = s"Repeated Scan of '$rddName' Across ${jobs.size} Jobs Without Caching",
-          description     = s"The dataset '$rddName' is read from scratch in ${jobs.size} jobs ($jobNames). Each job re-executes the full upstream lineage — reading source files, applying filters, and transforming data — when the result could be reused.",
-          recommendation  = "Call .cache() or .persist(StorageLevel.MEMORY_AND_DISK) before the first action, then .unpersist() when done. Use MEMORY_AND_DISK instead of MEMORY_ONLY to avoid re-computation if an executor is lost.",
+          description     = s"The dataset '$rddName' is read from scratch in ${jobs.size} jobs ($jobNames). Each job re-executes the full upstream lineage.$sizeNote",
+          recommendation  = storageAdvice,
           codeFix         = Some("val cached = df.persist(StorageLevel.MEMORY_AND_DISK)\ncached.count()  // materialise\n// ... use cached for subsequent jobs ...\ncached.unpersist()"),
           affectedJobs    = sortedJobs,
           metrics         = Map("job_count" -> jobs.size.toString, "rdd_name" -> rddName),

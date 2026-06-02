@@ -102,35 +102,38 @@ object PlanAnalyzer extends Analyzer {
         tree.nodesNamed("Generate").exists(n =>
           n.simpleString.toLowerCase.contains("explode")))
       if (hasExplodeText || hasExplodeTree) {
-        val inputBytes = (for {
+        // Use record counts (more precise than bytes) to detect unintended row explosion.
+        val linkedStages = for {
           jobId   <- sql.jobIds
           job     <- app.jobs.get(jobId).toSeq
           stageId <- job.stageIds
           stage   <- app.stages.get(stageId).toSeq
-        } yield stage.totalInputBytes + stage.totalShuffleRemoteBytes + stage.totalShuffleLocalBytes).sum
+        } yield stage
 
-        val outputBytes = (for {
-          jobId   <- sql.jobIds
-          job     <- app.jobs.get(jobId).toSeq
-          stageId <- job.stageIds
-          stage   <- app.stages.get(stageId).toSeq
-        } yield stage.totalOutputBytes + stage.totalShuffleBytesWritten).sum
+        val inputRecords  = linkedStages.map(s => s.totalInputRecords + s.totalShuffleRecordsRead).sum
+        val outputRecords = linkedStages.map(s => s.totalShuffleRecordsWritten + s.totalOutputRecords).sum
+        val inputBytes    = linkedStages.map(s => s.totalInputBytes + s.totalShuffleRemoteBytes + s.totalShuffleLocalBytes).sum
+        val outputBytes   = linkedStages.map(s => s.totalOutputBytes + s.totalShuffleBytesWritten).sum
 
-        val explosionRatio = propDouble(app, "spark.sparklens.plan.explodeRatio", 5.0)
-        val explodeSeverity =
-          if (inputBytes > MB && outputBytes > (inputBytes * explosionRatio).toLong) Warning
-          else Info
+        val explodeRatio  = propDouble(app, "spark.sparklens.plan.explodeRatio", 5.0)
+
+        // Prefer records ratio; fall back to bytes when record metrics unavailable
+        val (explodeSeverity, explodeDesc) =
+          if (inputRecords > 1000 && outputRecords > (inputRecords * explodeRatio).toLong)
+            (Warning, s"explode() expanded ${inputRecords} input records to ${outputRecords} output records " +
+              s"(${fmtDouble(outputRecords.toDouble / inputRecords, 1)}× expansion). This is typically an unintended many-to-many explosion.")
+          else if (inputBytes > MB && outputBytes > (inputBytes * explodeRatio).toLong)
+            (Warning, s"explode() expanded input ${fmtBytes(inputBytes)} to output ${fmtBytes(outputBytes)} " +
+              s"(${fmtDouble(outputBytes.toDouble / inputBytes, 1)}× by bytes). Verify this is expected.")
+          else
+            (Info, "A Generate(explode) node was found in the physical plan. explode() multiplies rows for every array or map element — verify this is intentional.")
 
         issues += Issue(
           id              = s"plan-explode-${sql.executionId}",
           severity        = explodeSeverity,
           category        = "plan",
           title           = s"""explode() / posexplode() in "${desc.take(80)}"${if (explodeSeverity == Warning) " — Row Explosion Confirmed" else " — Verify Row Multiplication is Intentional"}""",
-          description     =
-            if (explodeSeverity == Warning)
-              s"A Generate(explode) node multiplied data volume: input ${fmtBytes(inputBytes)} → output ${fmtBytes(outputBytes)}. This is typically an unintended many-to-many explosion."
-            else
-              "A Generate(explode) node was found in the physical plan. explode() multiplies rows for every array or map element — verify this is intentional.",
+          description     = explodeDesc,
           recommendation  =
             "If you only need to check existence, use array_contains() instead of explode(). " +
             "If downstream joins run on the exploded column, consider a lateral join to avoid materialising the full cross-product.",
@@ -140,6 +143,10 @@ object PlanAnalyzer extends Analyzer {
             "// Consider:\n" +
             "df.join(ref, array_contains(df(\"items\"), ref(\"item\")))"),
           affectedJobs    = sql.jobIds,
+          metrics         = Map(
+            "input_records"  -> inputRecords.toString,
+            "output_records" -> outputRecords.toString,
+          ),
           estimatedImpact = Some(configRisk),
         )
       }

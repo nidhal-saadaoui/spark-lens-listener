@@ -7,6 +7,7 @@ object Analyzers {
   val all: Seq[analyzers.Analyzer] = Seq(
     JobTimelineAnalyzer,
     SkewAnalyzer,
+    TaskOverheadAnalyzer,
     SpillAnalyzer,
     JoinAnalyzer,
     GcAnalyzer,

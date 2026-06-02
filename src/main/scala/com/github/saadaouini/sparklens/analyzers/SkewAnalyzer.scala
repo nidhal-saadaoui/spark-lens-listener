@@ -99,6 +99,16 @@ object SkewAnalyzer extends Analyzer {
               s"Shuffle read bytes are highly skewed: p95 (${fmtBytes(p95Shuf)}) is " +
               s"${fmtDouble(shufRatio, 1)}× the median (${fmtBytes(p50Shuf)}) across $taskCount tasks."
 
+            // If most of the task time is shuffle fetch-wait, the real bottleneck is the
+            // upstream stage that writes the shuffle data, not skew in this stage.
+            val fetchWaitRatio = if (stage.totalExecutorRunTimeMs > 0)
+              stage.totalShuffleFetchWaitTimeMs.toDouble / stage.totalExecutorRunTimeMs
+            else 0.0
+            val fetchWaitNote = if (fetchWaitRatio >= 0.5)
+              s" NOTE: ${fmtDouble(fetchWaitRatio * 100, 0)}% of task time was shuffle fetch-wait — " +
+              s"the upstream stage writing this data may be the real bottleneck."
+            else ""
+
             val (title, rec, confFix, codFix) = skewType match {
               case "shuffle" =>
                 (
@@ -153,20 +163,21 @@ object SkewAnalyzer extends Analyzer {
               severity        = severity,
               category        = "skew",
               title           = title,
-              description     = s"$sigDesc One or more partitions hold disproportionate data — the slowest tasks block the entire stage.",
+              description     = s"$sigDesc One or more partitions hold disproportionate data — the slowest tasks block the entire stage.$fetchWaitNote${if (stage.callSite.nonEmpty) s" Triggered from: ${stage.callSite}." else ""}",
               recommendation  = rec,
               configFix       = Some(confFix),
               codeFix         = Some(codFix),
               affectedStages  = Seq(stage.stageId),
               metrics         = Map(
-                "skew_type"     -> skewType,
-                "p95_ratio"     -> ratioFmt,
-                "concentration" -> fmtDouble(conc, 4),
-                "p50_ms"        -> p50.toString,
-                "p95_ms"        -> p95.toString,
-                "stragglers"    -> stragglers.toString,
-                "max_ms"        -> maxDur.toString,
-                "p75_ms"        -> p75.toString,
+                "skew_type"        -> skewType,
+                "p95_ratio"        -> ratioFmt,
+                "concentration"    -> fmtDouble(conc, 4),
+                "p50_ms"           -> p50.toString,
+                "p95_ms"           -> p95.toString,
+                "stragglers"       -> stragglers.toString,
+                "max_ms"           -> maxDur.toString,
+                "p75_ms"           -> p75.toString,
+                "fetch_wait_ratio" -> fmtDouble(fetchWaitRatio, 3),
               ),
               estimatedImpact = Some(stageImpact),
             ))

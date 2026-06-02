@@ -16,7 +16,8 @@ case class PlanNode(
   simpleString:    String,
   accumulatorIds:  Seq[Long],
   children:        Seq[PlanNode],
-  resolvedMetrics: Map[Long, Long] = Map.empty,
+  resolvedMetrics: Map[Long, Long]   = Map.empty,
+  metricNames:     Map[Long, String] = Map.empty,  // accumulatorId → human-readable metric name
 ) {
   /** DFS walk returning this node and all descendants. */
   def flatten: Seq[PlanNode] = this +: children.flatMap(_.flatten)
@@ -29,4 +30,8 @@ case class PlanNode(
 
   /** All nodes in the subtree whose nodeName contains `substr`. */
   def nodesContaining(substr: String): Seq[PlanNode] = flatten.filter(_.nodeName.contains(substr))
+
+  /** Look up a resolved metric value by its human-readable name, if available. */
+  def metricValue(name: String): Option[Long] =
+    metricNames.find(_._2 == name).flatMap(kv => resolvedMetrics.get(kv._1))
 }

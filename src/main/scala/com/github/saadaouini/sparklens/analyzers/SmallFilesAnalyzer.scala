@@ -25,7 +25,18 @@ object SmallFilesAnalyzer extends Analyzer {
 
         if (avgPerTask > 0 && avgPerTask < targetBytesPerTask / 2 && smallRatio >= SmallFileRatio) {
           val targetTasks = math.max(1, (totalInput.toDouble / targetBytesPerTask).round.toInt)
-          val impact      = EstimatedImpact(
+
+          // Look up exact file count from the SQL plan metric "number of files read"
+          // (available via SparkPlanInfo metric names captured at execution start).
+          val exactFileCount: Option[Long] = app.sqlExecutions.values.flatMap { sql =>
+            sql.planTree.flatMap { tree =>
+              val counts = tree.nodesContaining("FileScan").flatMap(_.metricValue("number of files read"))
+              if (counts.nonEmpty) Some(counts.sum) else None
+            }
+          }.find(_ > 0)
+
+          val fileNote = exactFileCount.map(n => s" Spark opened $n individual files.").getOrElse("")
+          val impact   = EstimatedImpact(
             summary     = s"$inputTaskCount small file tasks (avg ${fmtBytes(avgPerTask)}) — open/metadata overhead at each reader",
             savedTimeMs = None,
             savedBytes  = bytesOpt(totalInput),
@@ -36,7 +47,7 @@ object SmallFilesAnalyzer extends Analyzer {
             severity        = Warning,
             category        = "io",
             title           = s"Small Files in Stage ${stage.stageId} — $inputTaskCount tasks reading avg ${fmtBytes(avgPerTask)}",
-            description     = s"Stage ${stage.stageId} reads ${fmtBytes(totalInput)} across $inputTaskCount tasks (avg ${fmtBytes(avgPerTask)}/task). Ideal task size is 128–256 MB.",
+            description     = s"Stage ${stage.stageId} reads ${fmtBytes(totalInput)} across $inputTaskCount tasks (avg ${fmtBytes(avgPerTask)}/task). Ideal task size is 128–256 MB.$fileNote",
             recommendation  = s"Target $targetTasks tasks for this stage (${fmtBytes(totalInput)} ÷ 128 MB). Compact source files to ~128–256 MB using Delta OPTIMIZE, Hudi compaction, or Iceberg rewrite_data_files.",
             configFix       = Some("spark.sql.files.maxPartitionBytes=134217728  # 128 MB"),
             affectedStages  = Seq(stage.stageId),
@@ -44,7 +55,7 @@ object SmallFilesAnalyzer extends Analyzer {
               "total_input_bytes"  -> totalInput.toString,
               "task_count"         -> inputTaskCount.toString,
               "avg_bytes_per_task" -> avgPerTask.toString,
-            ),
+            ) ++ exactFileCount.map(n => "exact_file_count" -> n.toString).toMap,
             estimatedImpact = Some(impact),
           ))
         } else Nil
