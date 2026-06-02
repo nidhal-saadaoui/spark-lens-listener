@@ -1,7 +1,6 @@
 package com.github.saadaouini.sparklens
 
 import com.github.saadaouini.sparklens.report._
-import java.util.logging.{Level => JLevel}
 import org.apache.spark.{SPARK_VERSION, SparkConf}
 import org.apache.spark.scheduler._
 import org.apache.spark.sql.execution.ui.{
@@ -25,11 +24,19 @@ import java.util.logging.{Level, Logger}
  *
  * Configuration (all optional, all prefixed with spark.sparklens.*):
  *
- *   output       — off | text | json | html   (default: off)
- *   report.path  — local path or hdfs:// path to write the report file
- *                  omit to write to driver stdout
- *   fail.on      — critical | warning | info | none
- *                  throws RuntimeException at app end if blocking issues found (default: none)
+ *   output            — Comma-separated list of formats: off | text | json | html | log
+ *                       Examples: "text"  "text,json"  "log,json"
+ *                       (default: off — silent unless fail.on is set)
+ *
+ *   report.path       — Base path for all formats.  When multiple formats are active
+ *                       each gets its own extension: .txt .json .html .log
+ *                       A format-specific path takes priority:
+ *                         spark.sparklens.report.path.json=hdfs://bucket/report.json
+ *                         spark.sparklens.report.path.text=/tmp/report.txt
+ *                       Omit to write to driver stdout (log mode writes to driver logger).
+ *
+ *   fail.on           — critical | warning | info | none
+ *                       Throw at app end if issues at this severity or above are found.
  */
 class SparkLensListener(conf: SparkConf) extends SparkListener {
 
@@ -38,19 +45,50 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
 
   private val log = Logger.getLogger(classOf[SparkLensListener].getName)
 
-  private val outputMode = conf.get("spark.sparklens.output", "off").toLowerCase
-  private val reportPath = conf.getOption("spark.sparklens.report.path")
-  private val failOn     = conf.getOption("spark.sparklens.fail.on").map(_.toLowerCase)
+  // Parse comma-separated output list; normalise and deduplicate.
+  private val outputFormats: Set[String] =
+    conf.get("spark.sparklens.output", "off")
+      .split(",").map(_.trim.toLowerCase).filter(_.nonEmpty).toSet
+
+  private val failOn = conf.getOption("spark.sparklens.fail.on").map(_.toLowerCase)
 
   private val builder = new SparkAppModelBuilder(SPARK_VERSION)
+
+  // ── Path resolution ────────────────────────────────────────────────────────
+  // Priority: spark.sparklens.report.path.<format>
+  //         → spark.sparklens.report.path + .<ext>  (when multiple formats active)
+  //         → spark.sparklens.report.path            (when single format, for compat)
+  //         → None (stdout / logger)
+
+  private val basePath: Option[String] = conf.getOption("spark.sparklens.report.path")
+
+  private def pathFor(format: String): Option[String] = {
+    val perFormat = conf.getOption(s"spark.sparklens.report.path.$format")
+    perFormat.orElse {
+      basePath.map { base =>
+        val activeNonOff = outputFormats - "off"
+        if (activeNonOff.size <= 1) base               // single format: use path as-is
+        else s"$base.${extensionFor(format)}"           // multi-format: append extension
+      }
+    }
+  }
+
+  private def extensionFor(format: String): String = format match {
+    case "json" => "json"
+    case "html" => "html"
+    case "log"  => "log"
+    case _      => "txt"
+  }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   override def onApplicationStart(e: SparkListenerApplicationStart): Unit = {
     builder.onApplicationStart(e)
-    val pathInfo = reportPath.map(p => s", path=$p").getOrElse("")
+    val activeFormats = (outputFormats - "off").mkString(",")
+    val pathInfo = basePath.map(p => s", path=$p").getOrElse("")
     val failInfo = failOn.map(f => s", fail.on=$f").getOrElse("")
-    log.info(s"spark-lens attached (output=$outputMode$pathInfo$failInfo)")
+    val fmt = if (activeFormats.nonEmpty) activeFormats else "off"
+    log.info(s"spark-lens attached (output=$fmt$pathInfo$failInfo)")
   }
 
   override def onEnvironmentUpdate(e: SparkListenerEnvironmentUpdate): Unit =
@@ -64,9 +102,6 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
 
   override def onJobStart(e: SparkListenerJobStart): Unit = {
     builder.onJobStart(e)
-    // Link this job to its SQL execution (if any) so affected_jobs is populated in the report.
-    // SparkListenerJobStart.properties carries spark.sql.execution.id when the job was
-    // triggered by a DataFrame/SQL operation.
     Option(e.properties)
       .flatMap(p => Option(p.getProperty("spark.sql.execution.id")))
       .flatMap(id => scala.util.Try(id.toLong).toOption)
@@ -85,49 +120,33 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
   override def onStageCompleted(e: SparkListenerStageCompleted): Unit =
     builder.onStageCompleted(e)
 
-  // SQL plan events — captured via the generic onOtherEvent hook
   override def onOtherEvent(event: SparkListenerEvent): Unit = event match {
     case e: SparkListenerSQLExecutionStart =>
       builder.onSqlExecutionStart(
         e.executionId, e.description, e.physicalPlanDescription, e.sparkPlanInfo, e.time)
     case e: SparkListenerSQLAdaptiveExecutionUpdate =>
-      // AQE rewrites the plan at runtime; keep the latest version so analyzers see
-      // the final executed plan (e.g. SortMergeJoin → BroadcastHashJoin) not the initial one.
       builder.onSqlPlanUpdate(e.executionId, e.sparkPlanInfo)
     case e: SparkListenerSQLExecutionEnd =>
       builder.onSqlExecutionEnd(e.executionId, e.time)
     case _ =>
   }
 
-  // ── Application end: run analysis and emit report ─────────────────────────
+  // ── Application end: run analysis and emit all requested formats ──────────
 
   override def onApplicationEnd(e: SparkListenerApplicationEnd): Unit = {
-    if (outputMode == "off" && failOn.isEmpty) return
+    val activeFormats = outputFormats - "off"
+    if (activeFormats.isEmpty && failOn.isEmpty) return
 
     val app    = builder.build(e.time)
     val issues = Analyzers.runAll(app)
 
-    if (outputMode != "off") {
+    activeFormats.foreach { format =>
       try {
-        outputMode match {
-          case "json" => JsonReporter.write(app, issues, reportPath)
-          case "html" => HtmlReporter.write(app, issues, reportPath)
-          case "log"  =>
-            if (reportPath.isDefined) {
-              // Path set → write formatted log lines to a file
-              LogReporter.write(app, issues, reportPath)
-            } else {
-              // No path → write each line through the Java logger so messages appear
-              // inline in the Spark driver log at the correct severity level.
-              LogReporter.renderLines(app, issues).foreach { case (level, line) =>
-                log.log(level, line)
-              }
-            }
-          case _ => TextReporter.write(app, issues, reportPath)
-        }
+        emitFormat(format, app, issues)
       } catch {
         case ex: Exception =>
-          log.log(Level.WARNING, s"spark-lens: failed to write report: ${ex.getMessage}", ex)
+          log.log(Level.WARNING,
+            s"spark-lens: failed to write '$format' report: ${ex.getMessage}", ex)
       }
     }
 
@@ -146,6 +165,28 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
           )
         }
       }
+    }
+  }
+
+  private def emitFormat(
+    format: String,
+    app:    model.SparkAppModel,
+    issues: Seq[model.Issue],
+  ): Unit = {
+    val path = pathFor(format)
+    format match {
+      case "json" => JsonReporter.write(app, issues, path)
+      case "html" => HtmlReporter.write(app, issues, path)
+      case "log"  =>
+        if (path.isDefined) {
+          LogReporter.write(app, issues, path)
+        } else {
+          // No path → write through Java logger so lines appear inline in the driver log.
+          LogReporter.renderLines(app, issues).foreach { case (level, line) =>
+            log.log(level, line)
+          }
+        }
+      case _ => TextReporter.write(app, issues, path)
     }
   }
 }
