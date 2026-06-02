@@ -45,31 +45,31 @@ class JobTimelineAnalyzerSpec extends AnyFlatSpec with Matchers {
     gaps should not be empty
   }
 
-  it should "flag fragmentation when >50% of jobs are short and total jobs >= 20" in {
-    // 25 jobs all under 2 s
-    val jobs = (0 until 25).map { i =>
+  it should "flag fragmentation when >70% of jobs are short and total jobs >= 50" in {
+    // 55 jobs all under 2 s → 100% short > 70% threshold, 55 >= 50 minJobs
+    val jobs = (0 until 55).map { i =>
       i -> job(jobId = i).copy(submissionTimeMs = i * 3000L, completionTimeMs = Some(i * 3000L + 500L))
     }.toMap
     val issues = JobTimelineAnalyzer.analyze(app(jobs = jobs))
     val frag = issues.filter(_.id == "timeline-fragmentation")
     frag should have size 1
     frag.head.severity shouldBe Info
-    frag.head.metrics("small_jobs").toInt shouldBe 25
+    frag.head.metrics("small_jobs").toInt shouldBe 55
   }
 
-  it should "not flag fragmentation when fewer than minJobs total jobs" in {
-    val jobs = (0 until 5).map { i =>
+  it should "not flag fragmentation when fewer than 50 total jobs" in {
+    val jobs = (0 until 25).map { i =>
       i -> job(jobId = i).copy(submissionTimeMs = i * 3000L, completionTimeMs = Some(i * 3000L + 500L))
     }.toMap
     JobTimelineAnalyzer.analyze(app(jobs = jobs))
       .filter(_.id == "timeline-fragmentation") shouldBe empty
   }
 
-  it should "not flag fragmentation when short jobs are below the fraction threshold" in {
-    // 21 jobs: 10 short, 11 long → 10/21 ≈ 47.6% < 50%
-    val short = (0 until 10).map(i => i -> job(jobId = i).copy(
+  it should "not flag fragmentation when short jobs are below 70% fraction threshold" in {
+    // 60 jobs: 40 short, 20 long → 40/60 ≈ 66.7% < 70%
+    val short = (0 until 40).map(i => i -> job(jobId = i).copy(
       submissionTimeMs = i * 5000L, completionTimeMs = Some(i * 5000L + 500L))).toMap
-    val long  = (10 until 21).map(i => i -> job(jobId = i).copy(
+    val long  = (40 until 60).map(i => i -> job(jobId = i).copy(
       submissionTimeMs = i * 5000L, completionTimeMs = Some(i * 5000L + 30000L))).toMap
     JobTimelineAnalyzer.analyze(app(jobs = short ++ long))
       .filter(_.id == "timeline-fragmentation") shouldBe empty

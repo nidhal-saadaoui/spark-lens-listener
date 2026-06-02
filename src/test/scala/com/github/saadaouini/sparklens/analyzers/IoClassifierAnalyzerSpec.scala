@@ -32,18 +32,18 @@ class IoClassifierAnalyzerSpec extends AnyFlatSpec with Matchers {
     ioBound.head.metrics("cores") shouldBe "1"
   }
 
-  it should "flag a compute-bound stage when throughput is below the ceiling" in {
-    // 1 executor with 4 cores, 30 s stage, only 1 MB I/O → 0.008 MB/s/core << 1 MB/s ceiling
+  it should "not flag a shuffle-heavy stage with low file I/O (normal compute stage)" in {
+    // 4 cores, 30 s stage, only 1 MB file I/O but large shuffle → below 3 MB/s floor
+    // This is a normal in-memory groupBy/join — should NOT fire the I/O-bound check
     val exec = executor(id = "0").copy(totalCores = 4, addedTimeMs = 0L, removedTimeMs = None)
     val s = stage(stageId = 0, submitMs = Some(0L), completeMs = Some(30000L))
-             .copy(exactInputBytes = 1L * 1024L * 1024L, hasExactAggregates = true)
+             .copy(exactInputBytes = 1L * MB, hasExactAggregates = true)
     val issues = IoClassifierAnalyzer.analyze(app(
       stages    = Map(0 -> s),
       executors = Map("0" -> exec),
     ))
-    val computeBound = issues.filter(_.id.startsWith("compute-bound"))
-    computeBound should not be empty
-    computeBound.head.severity shouldBe Info
+    // compute-bound branch removed — should produce no io-bound issue either
+    issues.filter(i => i.id.startsWith("io-bound") || i.id.startsWith("compute-bound")) shouldBe empty
   }
 
   it should "floor cores to 1 when no executors are present (local mode guard)" in {

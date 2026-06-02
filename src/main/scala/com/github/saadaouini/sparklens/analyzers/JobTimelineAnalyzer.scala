@@ -8,8 +8,8 @@ object JobTimelineAnalyzer extends Analyzer {
   def analyze(app: SparkAppModel): Seq[Issue] = {
     val gapWarnMs       = propLong(app,   "spark.sparklens.timeline.gapWarnMs",      60000L)
     val fragThresholdMs = propLong(app,   "spark.sparklens.timeline.fragThresholdMs", 2000L)
-    val fragFraction    = propDouble(app, "spark.sparklens.timeline.fragFraction",    0.5)
-    val minJobsForFrag  = propLong(app,   "spark.sparklens.timeline.minJobs",        20L).toInt
+    val fragFraction    = propDouble(app, "spark.sparklens.timeline.fragFraction",    0.7)
+    val minJobsForFrag  = propLong(app,   "spark.sparklens.timeline.minJobs",        50L).toInt
 
     // Only consider jobs with a real submission time (0 means not captured by older builds).
     val timedJobs = app.jobs.values.toSeq

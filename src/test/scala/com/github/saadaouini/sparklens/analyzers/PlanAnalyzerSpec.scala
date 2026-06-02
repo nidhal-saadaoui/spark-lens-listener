@@ -134,11 +134,31 @@ class PlanAnalyzerSpec extends AnyFlatSpec with Matchers {
 
   // ── explode() detection ───────────────────────────────────────────────────
 
-  it should "flag Generate explode() in plan text as Warning" in {
+  it should "flag Generate explode() in plan text as Info when no byte evidence" in {
     val plan = "Project [id#0, elem#1]\n+- Generate explode(arr#2), [id#0], false, [elem#1]\n   +- LocalRelation"
     val issues = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> sqlExec(plan = plan))))
     val explode = issues.filter(_.id.startsWith("plan-explode"))
     explode should have size 1
+    explode.head.severity shouldBe Info
+  }
+
+  it should "escalate explode() to Warning when output exceeds 5× input bytes" in {
+    // Stage reads 2 MB shuffle (> 1 MB guard), writes 12 MB → ratio 6 > 5 → Warning
+    val s = stage(stageId = 0).copy(
+      hasExactAggregates       = true,
+      exactShuffleRemoteBytes  = 2L * MB,
+      exactShuffleBytesWritten = 12L * MB,
+    )
+    val j    = job(jobId = 0, stageIds = Seq(0))
+    val plan = "Project [id#0, elem#1]\n+- Generate explode(arr#2), [id#0], false, [elem#1]"
+    val exec = sqlExec(id = 0L, plan = plan, jobIds = Seq(0))
+    val issues = PlanAnalyzer.analyze(app(
+      stages   = Map(0 -> s),
+      jobs     = Map(0 -> j),
+      sqlExecs = Map(0L -> exec),
+    ))
+    val explode = issues.filter(_.id.startsWith("plan-explode"))
+    explode should not be empty
     explode.head.severity shouldBe Warning
   }
 
@@ -163,46 +183,66 @@ class PlanAnalyzerSpec extends AnyFlatSpec with Matchers {
     issues.filter(_.id.startsWith("plan-explode")) shouldBe empty
   }
 
-  // ── Deep Project chain (withColumn loop) ─────────────────────────────────
+  // ── Slow plan compilation detection ──────────────────────────────────────
 
-  it should "flag a plan tree with 20+ Project nodes as Warning" in {
-    // Build a chain of 25 Project nodes
-    val leaf    = planNode("LocalRelation")
-    val chain   = (0 until 25).foldLeft(leaf: PlanNode) { (child, _) => planNode("Project", children = Seq(child)) }
-    val exec    = sqlExec(id = 0L, plan = "", planTree = Some(chain))
-    val issues  = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> exec)))
-    val chain25 = issues.filter(_.id.startsWith("plan-project-chain"))
-    chain25 should not be empty
-    chain25.head.severity shouldBe Warning
-    chain25.head.metrics("project_count").toInt shouldBe 25
-  }
-
-  it should "not flag a plan tree with fewer than 20 Project nodes" in {
-    val leaf  = planNode("LocalRelation")
-    val chain = (0 until 5).foldLeft(leaf: PlanNode) { (child, _) => planNode("Project", children = Seq(child)) }
-    val exec  = sqlExec(id = 0L, plan = "", planTree = Some(chain))
-    PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> exec)))
-      .filter(_.id.startsWith("plan-project-chain")) shouldBe empty
-  }
-
-  it should "flag deep Project chain via plan text when planTree is absent" in {
-    // 22 lines that start with "Project ["
-    val projectLines = (0 until 22).map(i => s"Project [col$i#$i, col${i+1}#${i+1}]").mkString("\n")
-    val plan = projectLines + "\n+- LocalRelation"
-    val exec = sqlExec(id = 0L, plan = plan, planTree = None)
-    val issues = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> exec)))
-    issues.filter(_.id.startsWith("plan-project-chain")) should not be empty
-  }
-
-  it should "respect a custom projectChainWarn threshold" in {
-    val leaf  = planNode("LocalRelation")
-    val chain = (0 until 25).foldLeft(leaf: PlanNode) { (child, _) => planNode("Project", children = Seq(child)) }
-    val exec  = sqlExec(id = 0L, plan = "", planTree = Some(chain))
-    val a = app(
+  it should "flag slow plan compilation when compile time exceeds 5 s" in {
+    // SQL starts at t=1, first job submits at t=8001 ms → 8 s compile time > 5 s threshold
+    val j    = job(jobId = 0, submissionTimeMs = 8001L)
+    val exec = sqlExec(id = 0L, jobIds = Seq(0), startTimeMs = 1L)
+    val issues = PlanAnalyzer.analyze(app(
+      jobs     = Map(0 -> j),
       sqlExecs = Map(0L -> exec),
-      props    = Map("spark.sparklens.plan.projectChainWarn" -> "30"),
+    ))
+    val slow = issues.filter(_.id.startsWith("plan-slow-compile"))
+    slow should not be empty
+    slow.head.severity shouldBe Warning
+    slow.head.metrics("compile_ms").toLong shouldBe 8000L
+    slow.head.estimatedImpact.flatMap(_.savedTimeMs) shouldBe Some(8000L)
+  }
+
+  it should "flag slow plan compilation and use high confidence impact" in {
+    val j    = job(jobId = 0, submissionTimeMs = 6001L)
+    val exec = sqlExec(id = 0L, jobIds = Seq(0), startTimeMs = 1L)
+    val issues = PlanAnalyzer.analyze(app(jobs = Map(0 -> j), sqlExecs = Map(0L -> exec)))
+    val slow = issues.filter(_.id.startsWith("plan-slow-compile"))
+    slow should not be empty
+    slow.head.estimatedImpact.get.confidence shouldBe "high"
+  }
+
+  it should "not flag compile time below the threshold" in {
+    val j    = job(jobId = 0, submissionTimeMs = 3001L)
+    val exec = sqlExec(id = 0L, jobIds = Seq(0), startTimeMs = 1L)
+    PlanAnalyzer.analyze(app(
+      jobs     = Map(0 -> j),
+      sqlExecs = Map(0L -> exec),
+    )).filter(_.id.startsWith("plan-slow-compile")) shouldBe empty
+  }
+
+  it should "not flag compile time when sql.startTimeMs is 0 (not captured)" in {
+    // submissionTimeMs=10000, startTimeMs=0 → guard (startTimeMs > 0) skips the check
+    val j    = job(jobId = 0, submissionTimeMs = 10000L)
+    val exec = sqlExec(id = 0L, jobIds = Seq(0), startTimeMs = 0L)
+    PlanAnalyzer.analyze(app(
+      jobs     = Map(0 -> j),
+      sqlExecs = Map(0L -> exec),
+    )).filter(_.id.startsWith("plan-slow-compile")) shouldBe empty
+  }
+
+  it should "not flag compile time when sql has no linked jobs" in {
+    val exec = sqlExec(id = 0L, jobIds = Nil, startTimeMs = 1000L)
+    PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> exec)))
+      .filter(_.id.startsWith("plan-slow-compile")) shouldBe empty
+  }
+
+  it should "respect a custom compileWarnMs threshold" in {
+    val j    = job(jobId = 0, submissionTimeMs = 8001L)
+    val exec = sqlExec(id = 0L, jobIds = Seq(0), startTimeMs = 1L)
+    val a = app(
+      jobs     = Map(0 -> j),
+      sqlExecs = Map(0L -> exec),
+      props    = Map("spark.sparklens.plan.compileWarnMs" -> "10000"),
     )
-    PlanAnalyzer.analyze(a).filter(_.id.startsWith("plan-project-chain")) shouldBe empty
+    PlanAnalyzer.analyze(a).filter(_.id.startsWith("plan-slow-compile")) shouldBe empty
   }
 
   it should "produce issues for each SQL execution independently" in {

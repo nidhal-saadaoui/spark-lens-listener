@@ -1,6 +1,6 @@
 package com.github.saadaouini.sparklens.analyzers
 
-import com.github.saadaouini.sparklens.model.{Issue, SparkAppModel}
+import com.github.saadaouini.sparklens.model.{Issue, PlanNode, SparkAppModel, SqlExecutionData}
 import java.util.Locale
 
 trait Analyzer {
@@ -53,4 +53,21 @@ trait Analyzer {
 
   protected def propDouble(app: SparkAppModel, key: String, default: Double): Double =
     app.prop(key).flatMap(s => scala.util.Try(s.toDouble).toOption).getOrElse(default)
+
+  // ── Plan-text utilities ─────────────────────────────────────────────────────
+
+  /** Returns only the plan-tree section of a FORMATTED plan, stripping per-node detail blocks
+   *  that start with "\n\n(N)". Used to anchor text searches to the tree, not the detail. */
+  protected def treeSection(plan: String): String = {
+    val sep = plan.indexOf("\n\n(")
+    if (sep > 0) plan.substring(0, sep) else plan
+  }
+
+  /** Dual-path plan check: prefers structured planTree (reflects AQE rewrites) and falls
+   *  back to text search when planTree is absent. */
+  protected def checkPlan(
+    sql:       SqlExecutionData,
+    textCheck: => Boolean,
+    treeCheck: PlanNode => Boolean,
+  ): Boolean = sql.planTree.fold(textCheck)(treeCheck)
 }

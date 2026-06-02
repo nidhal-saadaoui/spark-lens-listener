@@ -29,12 +29,12 @@ object JoinAnalyzer extends Analyzer {
       // (updated by SparkListenerSQLAdaptiveExecutionUpdate for AQE queries) so a join that
       // Spark auto-converted to BroadcastHashJoin at runtime is not reported as SortMergeJoin.
       // Fall back to text search when planTree is absent (e.g. tests with no planInfo).
-      val hasSMJ = sql.planTree.fold(plan.contains("SortMergeJoin"))(
-        _.nodesNamed("SortMergeJoin").nonEmpty
-      )
-      val hasBroadcast = sql.planTree.fold(
-        plan.contains("BroadcastHashJoin") || plan.contains("BroadcastNestedLoopJoin")
-      )(t => t.nodesNamed("BroadcastHashJoin").nonEmpty || t.nodesNamed("BroadcastNestedLoopJoin").nonEmpty)
+      val hasSMJ = checkPlan(sql,
+        plan.contains("SortMergeJoin"),
+        _.nodesNamed("SortMergeJoin").nonEmpty)
+      val hasBroadcast = checkPlan(sql,
+        plan.contains("BroadcastHashJoin") || plan.contains("BroadcastNestedLoopJoin"),
+        t => t.nodesNamed("BroadcastHashJoin").nonEmpty || t.nodesNamed("BroadcastNestedLoopJoin").nonEmpty)
 
       // SortMergeJoin where broadcast threshold might help
       if (hasSMJ) {
@@ -88,10 +88,7 @@ object JoinAnalyzer extends Analyzer {
         case Some(tree) =>
           tree.nodesContaining("Exchange").count(!_.nodeName.contains("BroadcastExchange"))
         case None =>
-          val planForCounting = {
-            val sep = plan.indexOf("\n\n(")
-            if (sep > 0) plan.substring(0, sep) else plan
-          }
+          val planForCounting = treeSection(plan)
           val allExchanges   = planForCounting.sliding("Exchange".length).count(_ == "Exchange")
           val broadcastCount = planForCounting.sliding("BroadcastExchange".length).count(_ == "BroadcastExchange")
           allExchanges - broadcastCount

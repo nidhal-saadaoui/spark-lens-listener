@@ -48,7 +48,7 @@ object DriverBottleneckAnalyzer extends Analyzer {
           description     = "The query uses CollectLimit or TakeOrderedAndProject which gathers data to the driver. Fine for LIMIT, problematic for large N.",
           recommendation  = "If fetching large amounts of data, write to storage instead of collecting to the driver.",
           affectedJobs    = sql.jobIds,
-          estimatedImpact = Some(configRisk),
+          estimatedImpact = None,
         )
       }
     }

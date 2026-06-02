@@ -77,15 +77,16 @@ object AnalyzerFixtures {
   )
 
   def job(
-    jobId:    Int      = 0,
-    stageIds: Seq[Int] = Nil,
-    status:   String   = "SUCCEEDED",
+    jobId:           Int      = 0,
+    stageIds:        Seq[Int] = Nil,
+    status:          String   = "SUCCEEDED",
+    submissionTimeMs: Long    = 0L,
   ): JobData = JobData(
     jobId            = jobId,
     name             = s"job-$jobId",
     stageIds         = stageIds,
-    submissionTimeMs = 0L,
-    completionTimeMs = Some(1000L),
+    submissionTimeMs = submissionTimeMs,
+    completionTimeMs = Some(submissionTimeMs + 1000L),
     status           = status,
   )
 
@@ -128,12 +129,13 @@ object AnalyzerFixtures {
     plan:        String            = "",
     jobIds:      Seq[Int]          = Nil,
     planTree:    Option[PlanNode]  = None,
+    startTimeMs: Long              = 0L,
   ): SqlExecutionData = SqlExecutionData(
     executionId      = id,
     description      = description,
     physicalPlan     = plan,
-    startTimeMs      = 0L,
-    completionTimeMs = Some(1000L),
+    startTimeMs      = startTimeMs,
+    completionTimeMs = Some(startTimeMs + 5000L),
     jobIds           = jobIds,
     planTree         = planTree,
   )

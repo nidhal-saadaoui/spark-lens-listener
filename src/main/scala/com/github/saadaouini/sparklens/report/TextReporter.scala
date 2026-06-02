@@ -36,6 +36,35 @@ object TextReporter extends Reporter {
       return sb.toString()
     }
 
+    def msLabel(ms: Long): String =
+      if (ms >= 60000) f"${ms / 60000.0}%.1fmin"
+      else if (ms >= 1000) f"${ms / 1000.0}%.1fs"
+      else s"${ms}ms"
+
+    // ── Priority Issues — top 3 by estimated savings ──────────────────────────
+    val ranked = issues
+      .filter(i => i.estimatedImpact.flatMap(_.savedTimeMs).exists(_ >= 1000L))
+      .take(3)
+    if (ranked.nonEmpty) {
+      sb.append("\n  Priority fixes (estimated savings per run):\n")
+      ranked.zipWithIndex.foreach { case (issue, idx) =>
+        val saving = issue.estimatedImpact.flatMap(_.savedTimeMs)
+          .map(ms => s"  ~${msLabel(ms)}").getOrElse("")
+        sb.append(s"  ${idx + 1}. [${issue.severity.label}] ${issue.title.take(65)}$saving\n")
+      }
+      sb.append("\n")
+    }
+
+    // ── Minimum-impact filter ─────────────────────────────────────────────────
+    // When there are many issues, hide Info items with no quantifiable impact
+    // to keep the report readable. They remain in JSON output.
+    val quietInfo = issues.filter { i =>
+      i.severity == Info && i.estimatedImpact.flatMap(_.savedTimeMs).forall(_ < 1000L)
+    }
+    val displayIssues =
+      if (issues.size > 5 && quietInfo.nonEmpty) issues.filterNot(quietInfo.toSet)
+      else issues
+
     // ── Issue list ────────────────────────────────────────────────────────────
     // Format per issue:
     //   [icon]  Title  (~impact)
@@ -67,11 +96,6 @@ object TextReporter extends Reporter {
         else None
       }.getOrElse("")
 
-    def msLabel(ms: Long): String =
-      if (ms >= 60000) f"${ms / 60000.0}%.1fmin"
-      else if (ms >= 1000) f"${ms / 1000.0}%.1fs"
-      else s"${ms}ms"
-
     def indented(prefix: String, value: String): String = {
       val pad = " " * prefix.length
       value.split("\n").zipWithIndex.map {
@@ -80,7 +104,11 @@ object TextReporter extends Reporter {
       }.mkString("\n")
     }
 
-    issues.foreach { issue =>
+    if (quietInfo.nonEmpty && displayIssues.size < issues.size) {
+      sb.append(s"  (${quietInfo.size} low-impact info issue(s) hidden — use spark.sparklens.output=json to see all)\n\n")
+    }
+
+    displayIssues.foreach { issue =>
       val ic       = icon(issue)
       val impSufx  = impactSuffix(issue)
       sb.append(s"\n  [$ic]  ${issue.title}$impSufx\n")
@@ -117,7 +145,7 @@ object TextReporter extends Reporter {
     // ── Quick wins ────────────────────────────────────────────────────────────
     // Group issues by their primary config fix (first non-comment line).
     // Show each distinct fix once, listing which issues it resolves.
-    val fixGroups: Seq[(String, Seq[Issue])] = issues
+    val fixGroups: Seq[(String, Seq[Issue])] = displayIssues
       .filter(_.configFix.isDefined)
       .groupBy(i => i.configFix.get.linesIterator.next().split('#').head.trim)
       .toSeq

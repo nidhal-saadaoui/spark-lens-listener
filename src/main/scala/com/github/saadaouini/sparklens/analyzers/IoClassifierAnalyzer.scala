@@ -15,10 +15,9 @@ object IoClassifierAnalyzer extends Analyzer {
   }
 
   def analyze(app: SparkAppModel): Seq[Issue] = {
-    val minDurationMs      = propLong(app,   "spark.sparklens.io.minDurationMs",     10000L)
-    val ioFloorMbps        = propDouble(app, "spark.sparklens.io.ioFloorMbps",        3.0)
-    val computeCeilingMbps = propDouble(app, "spark.sparklens.io.computeCeilingMbps", 1.0)
-    val minIoBytes         = propLong(app,   "spark.sparklens.io.minIoBytes",         MB)
+    val minDurationMs = propLong(app,   "spark.sparklens.io.minDurationMs", 10000L)
+    val ioFloorMbps   = propDouble(app, "spark.sparklens.io.ioFloorMbps",   3.0)
+    val minIoBytes    = propLong(app,   "spark.sparklens.io.minIoBytes",    MB)
 
     app.stages.values.toSeq.flatMap { stage =>
       val dur = stage.durationMs
@@ -53,28 +52,6 @@ object IoClassifierAnalyzer extends Analyzer {
                 "Enable AQE partition coalescing. " +
                 "Cache the dataset if it is read multiple times.",
               configFix       = Some("spark.sql.adaptive.enabled=true"),
-              affectedStages  = Seq(stage.stageId),
-              metrics         = Map(
-                "throughput_mb_per_core" -> fmtDouble(throughput, 2),
-                "max_io_bytes"           -> maxIoBytes.toString,
-                "cores"                  -> cores.toString,
-                "duration_ms"            -> dur.toString,
-              ),
-              estimatedImpact = Some(configRisk),
-            ))
-          } else if (throughput < computeCeilingMbps) {
-            Seq(Issue(
-              id              = s"compute-bound-${stage.stageId}",
-              severity        = Info,
-              category        = "io",
-              title           = s"Compute-Bound Stage ${stage.stageId} — Only ${fmtDouble(throughput, 2)} MB/s per core despite ${fmtMs(dur)} runtime",
-              description     =
-                s"Stage ${stage.stageId} ran for ${fmtMs(dur)} but only moved ${fmtBytes(maxIoBytes)} of data " +
-                s"(~${fmtDouble(throughput, 2)} MB/s per core). The bottleneck is CPU or memory, not I/O.",
-              recommendation  =
-                "Investigate Python/Scala UDFs that bypass Catalyst (see UdfAnalyzer). " +
-                "Check for data skew that serialises work onto one task (see SkewAnalyzer). " +
-                "Review GC overhead (see GcAnalyzer).",
               affectedStages  = Seq(stage.stageId),
               metrics         = Map(
                 "throughput_mb_per_core" -> fmtDouble(throughput, 2),

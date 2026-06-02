@@ -33,10 +33,7 @@ object PlanAnalyzer extends Analyzer {
       // appears AFTER "Window" in the tree section; for partitioned windows the
       // SinglePartition exchange belongs to the outer aggregation and appears BEFORE.
       val windowTextFires: Boolean = if (plan.contains("Window")) {
-        val treePlan = {
-          val sep = plan.indexOf("\n\n(")
-          if (sep > 0) plan.substring(0, sep) else plan
-        }
+        val treePlan = treeSection(plan)
         val wIdx = treePlan.indexOf("Window")
         wIdx >= 0 && treePlan.indexOf("SinglePartition", wIdx) >= 0
       } else false
@@ -50,8 +47,7 @@ object PlanAnalyzer extends Analyzer {
         }
       }
 
-      val windowFires = windowTextFires || windowTreeFires
-      if (windowFires) {
+      if (windowTextFires || windowTreeFires) {
         issues += Issue(
           id              = s"plan-window-nopart-${sql.executionId}",
           severity        = Warning,
@@ -96,69 +92,98 @@ object PlanAnalyzer extends Analyzer {
       }
 
       // ── explode() / posexplode() — row multiplication ──────────────────────
-      // A Generate node with explode produces many more rows than it receives.
-      // This is fine when intentional (normalising arrays) but is often
-      // unintentional and causes the same data-explosion symptom as a
-      // many-to-many join.  Databricks guide: "if you see a few rows going in
-      // and magnitudes more coming out, you may be suffering from … explode()."
+      // A Generate node with explode produces more rows than it receives.
+      // Severity is elevated to Warning only when byte evidence confirms a real
+      // explosion (output > 5× input); otherwise Info since explode is often
+      // intentional (normalising arrays, flattening nested JSON).
       val hasExplodeText = plan.contains("Generate explode") ||
                            plan.contains("Generate posexplode")
       val hasExplodeTree = sql.planTree.exists(tree =>
         tree.nodesNamed("Generate").exists(n =>
           n.simpleString.toLowerCase.contains("explode")))
       if (hasExplodeText || hasExplodeTree) {
+        val inputBytes = (for {
+          jobId   <- sql.jobIds
+          job     <- app.jobs.get(jobId).toSeq
+          stageId <- job.stageIds
+          stage   <- app.stages.get(stageId).toSeq
+        } yield stage.totalInputBytes + stage.totalShuffleRemoteBytes + stage.totalShuffleLocalBytes).sum
+
+        val outputBytes = (for {
+          jobId   <- sql.jobIds
+          job     <- app.jobs.get(jobId).toSeq
+          stageId <- job.stageIds
+          stage   <- app.stages.get(stageId).toSeq
+        } yield stage.totalOutputBytes + stage.totalShuffleBytesWritten).sum
+
+        val explosionRatio = propDouble(app, "spark.sparklens.plan.explodeRatio", 5.0)
+        val explodeSeverity =
+          if (inputBytes > MB && outputBytes > (inputBytes * explosionRatio).toLong) Warning
+          else Info
+
         issues += Issue(
           id              = s"plan-explode-${sql.executionId}",
-          severity        = Warning,
+          severity        = explodeSeverity,
           category        = "plan",
-          title           = s"""explode() / posexplode() in "${desc.take(80)}" — Verify Row Multiplication is Intentional""",
-          description     = "A Generate(explode) node was found in the physical plan. explode() multiplies rows for every element in an array or map column. If the source column has high cardinality this can cause unexpected data explosion downstream.",
+          title           = s"""explode() / posexplode() in "${desc.take(80)}"${if (explodeSeverity == Warning) " — Row Explosion Confirmed" else " — Verify Row Multiplication is Intentional"}""",
+          description     =
+            if (explodeSeverity == Warning)
+              s"A Generate(explode) node multiplied data volume: input ${fmtBytes(inputBytes)} → output ${fmtBytes(outputBytes)}. This is typically an unintended many-to-many explosion."
+            else
+              "A Generate(explode) node was found in the physical plan. explode() multiplies rows for every array or map element — verify this is intentional.",
           recommendation  =
-            "Confirm that row multiplication is expected. " +
             "If you only need to check existence, use array_contains() instead of explode(). " +
-            "If downstream joins run on the exploded column, consider rewriting as a lateral join to avoid materialising the full cross-product.",
+            "If downstream joins run on the exploded column, consider a lateral join to avoid materialising the full cross-product.",
           codeFix         = Some(
             "// Instead of:\n" +
             "df.withColumn(\"item\", explode(col(\"items\"))).join(ref, \"item\")\n" +
-            "// Consider a lateral join (Spark 3.4+):\n" +
+            "// Consider:\n" +
             "df.join(ref, array_contains(df(\"items\"), ref(\"item\")))"),
           affectedJobs    = sql.jobIds,
           estimatedImpact = Some(configRisk),
         )
       }
 
-      // ── Deep Project chain — withColumn() in a loop ─────────────────────────
-      // Each withColumn() call adds a Project node.  Catalyst collapses simple
-      // expressions but NOT UDF-bearing columns.  Many stacked Projects slow
-      // plan compilation on the driver AND indicate the loop anti-pattern.
-      val projectCount = sql.planTree
-        .map(_.nodesNamed("Project").size)
-        .getOrElse {
-          plan.split("\n")
-            .map(_.trim.replaceAll("""^\*\(\d+\) """, ""))
-            .count(l => l.startsWith("Project [") || l == "Project")
+      // ── Slow plan compilation — driver bottleneck ──────────────────────────
+      // The gap between SQL execution start and first job submission is the time
+      // the driver spent building and optimising the query plan.  A large gap
+      // indicates an overly complex plan — typically from withColumn() in a loop,
+      // deeply nested CTEs, or a very wide schema.
+      if (sql.startTimeMs > 0) {
+        val submitTimes = sql.jobIds
+          .flatMap(jid => app.jobs.get(jid))
+          .map(_.submissionTimeMs)
+          .filter(_ > 0)
+        if (submitTimes.nonEmpty) {
+          val compileMs     = submitTimes.min - sql.startTimeMs
+          val compileWarnMs = propLong(app, "spark.sparklens.plan.compileWarnMs", 5000L)
+          if (compileMs >= compileWarnMs) {
+            issues += Issue(
+              id              = s"plan-slow-compile-${sql.executionId}",
+              severity        = Warning,
+              category        = "plan",
+              title           = s"""Slow Plan Compilation in "${desc.take(80)}" — ${fmtMs(compileMs)} on driver""",
+              description     = s"Spark spent ${fmtMs(compileMs)} on the driver compiling the query plan before any executor work started. This is usually caused by withColumn() in a loop, deeply nested CTEs, or a very wide schema.",
+              recommendation  =
+                "Combine all withColumn() calls into a single select(). " +
+                "Replace Python/Scala loops that build DataFrames incrementally with set-based operations.",
+              codeFix         = Some(
+                "// Instead of:\n" +
+                "for name, expr in cols.items():\n" +
+                "    df = df.withColumn(name, expr)\n" +
+                "// Use:\n" +
+                "df.select('*', *[expr.alias(name) for name, expr in cols.items()])"),
+              affectedJobs    = sql.jobIds,
+              metrics         = Map("compile_ms" -> compileMs.toString),
+              estimatedImpact = Some(EstimatedImpact(
+                summary     = s"${fmtMs(compileMs)} of driver compile time before first executor task",
+                savedTimeMs = timeOpt(compileMs),
+                savedBytes  = None,
+                confidence  = "high",
+              )),
+            )
+          }
         }
-      val projectWarn = propLong(app, "spark.sparklens.plan.projectChainWarn", 20L).toInt
-      if (projectCount >= projectWarn) {
-        issues += Issue(
-          id              = s"plan-project-chain-${sql.executionId}",
-          severity        = Warning,
-          category        = "plan",
-          title           = s"""Deep Projection Chain in "${desc.take(80)}" — $projectCount Project nodes""",
-          description     = s"The physical plan contains $projectCount Project nodes. This typically results from calling withColumn() or select() in a loop, which creates a deeply nested plan that is slow for the driver to compile and optimise.",
-          recommendation  =
-            "Combine all column derivations into a single select() or selectExpr() call. " +
-            "This reduces the plan to a single Project node and eliminates the compilation overhead.",
-          codeFix         = Some(
-            "// Instead of:\n" +
-            "for name, expr in cols.items():\n" +
-            "    df = df.withColumn(name, expr)\n" +
-            "// Use:\n" +
-            "df.select(\"*\", *[expr.alias(name) for name, expr in cols.items()])"),
-          affectedJobs    = sql.jobIds,
-          metrics         = Map("project_count" -> projectCount.toString),
-          estimatedImpact = Some(configRisk),
-        )
       }
 
       issues.toSeq
