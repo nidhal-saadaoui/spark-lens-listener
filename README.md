@@ -97,6 +97,8 @@ on large pipelines.
 | MemoryPressureAnalyzer | reliability | GC > 10% and disk spill > 100 MB co-occurring in the same stage |
 | StageParallelismAnalyzer | io | Stage tasks < 50% of available executor cores on a stage > 10 s, or entire stage runs as a single task |
 | LongStageAnalyzer | reliability | Stage duration > 5× the median stage duration in its job |
+| ExecutorSizingAnalyzer | config | Executor memory under/over-provisioned vs measured peak task memory; driver heap risk; cluster cores vs max stage parallelism |
+| TaskOverheadAnalyzer | io | Executor deserialise time > 30% of run time — too many small tasks |
 
 ## Configuration
 

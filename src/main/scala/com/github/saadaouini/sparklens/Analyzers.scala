@@ -17,6 +17,7 @@ object Analyzers {
     UdfAnalyzer,
     IoClassifierAnalyzer,
     ConfigAnalyzer,
+    ExecutorSizingAnalyzer,
     SmallFilesAnalyzer,
     OutputSmallFilesAnalyzer,
     ShuffleLocalityAnalyzer,
