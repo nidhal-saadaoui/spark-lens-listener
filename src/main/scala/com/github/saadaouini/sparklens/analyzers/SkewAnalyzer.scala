@@ -37,22 +37,27 @@ object SkewAnalyzer extends Analyzer {
         else {
         val p50 = percentile(durations, 50)
         val p95 = percentile(durations, 95)
-        if (p50 < MinP50Ms) Nil
-        else {
-          val durRatio = p95.toDouble / p50
-          val conc     = concentration(durations)
 
-          val shuffleBytes = stage.tasks.map(t =>
-            t.metrics.shuffleRemoteBytesRead + t.metrics.shuffleLocalBytesRead).sorted
-          val p50Shuf   = percentile(shuffleBytes, 50)
-          val p95Shuf   = percentile(shuffleBytes, 95)
-          val shufRatio = if (p50Shuf >= MinShufBytes) p95Shuf.toDouble / p50Shuf else 0.0
+        // Shuffle-bytes skew is evaluated before the MinP50Ms guard so that
+        // hot-key imbalance in fast local-mode or CI stages is still detected
+        // when task durations are sub-500 ms.
+        val shuffleBytes = stage.tasks.map(t =>
+          t.metrics.shuffleRemoteBytesRead + t.metrics.shuffleLocalBytesRead).sorted
+        val p50Shuf   = percentile(shuffleBytes, 50)
+        val p95Shuf   = percentile(shuffleBytes, 95)
+        val shufRatio = if (p50Shuf >= MinShufBytes) p95Shuf.toDouble / p50Shuf else 0.0
+        val shufWarn  = shufRatio >= ShufP95Warn
 
-          val durWarn  = durRatio  >= p95WarnRatio
-          val concWarn = conc      >= ConcWarn
-          val shufWarn = shufRatio >= ShufP95Warn
+        // Duration / concentration signals only apply when stages are slow enough
+        // to give meaningful timing data.
+        val (durRatio, conc, durWarn, concWarn) =
+          if (p50 >= MinP50Ms) {
+            val dr = p95.toDouble / p50
+            val cn = concentration(durations)
+            (dr, cn, dr >= p95WarnRatio, cn >= ConcWarn)
+          } else (0.0, 0.0, false, false)
 
-          if (!(durWarn || concWarn || shufWarn)) Nil
+        if (!(durWarn || concWarn || shufWarn)) Nil
           else {
             val durCrit  = durRatio  >= p95CritRatio
             val concCrit = conc      >= ConcCrit
@@ -78,10 +83,13 @@ object SkewAnalyzer extends Analyzer {
             val ratioFmt   = fmtDouble(durRatio, 1)
             val concPct    = fmtDouble(conc * 100, 0)
 
-            val sigDesc =
+            val sigDesc = if (durWarn || concWarn)
               s"p95 executor run time (${fmtMs(p95)}) is ${ratioFmt}× the median (${fmtMs(p50)}). " +
               s"The top 5% slowest tasks hold ${concPct}% of total stage time " +
               s"($stragglers straggler(s) out of $taskCount)."
+            else
+              s"Shuffle read bytes are highly skewed: p95 (${fmtBytes(p95Shuf)}) is " +
+              s"${fmtDouble(shufRatio, 1)}× the median (${fmtBytes(p50Shuf)}) across $taskCount tasks."
 
             val (title, rec, confFix, codFix) = skewType match {
               case "shuffle" =>
@@ -153,7 +161,6 @@ object SkewAnalyzer extends Analyzer {
               estimatedImpact = Some(stageImpact),
             ))
           }
-        }
         }   // close: if (durations.size < minTasks) Nil else
       }
     }

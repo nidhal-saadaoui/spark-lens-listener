@@ -29,7 +29,10 @@ object PlanAnalyzer extends Analyzer {
         )
       }
 
-      val windowFires: Boolean = if (plan.contains("Window")) {
+      // Text-based detection: for unpartitioned Window the child Exchange SinglePartition
+      // appears AFTER "Window" in the tree section; for partitioned windows the
+      // SinglePartition exchange belongs to the outer aggregation and appears BEFORE.
+      val windowTextFires: Boolean = if (plan.contains("Window")) {
         val treePlan = {
           val sep = plan.indexOf("\n\n(")
           if (sep > 0) plan.substring(0, sep) else plan
@@ -37,6 +40,17 @@ object PlanAnalyzer extends Analyzer {
         val wIdx = treePlan.indexOf("Window")
         wIdx >= 0 && treePlan.indexOf("SinglePartition", wIdx) >= 0
       } else false
+
+      // Plan-tree fallback: Window without PARTITION BY has Exchange(SinglePartition) as a
+      // DESCENDANT of the Window node in the SparkPlanInfo tree.  For partitioned windows
+      // the SinglePartition exchange is an ancestor (outer agg), not a descendant.
+      val windowTreeFires: Boolean = sql.planTree.exists { tree =>
+        tree.nodesNamed("Window").exists { w =>
+          w.flatten.exists(n => n.simpleString.contains("SinglePartition"))
+        }
+      }
+
+      val windowFires = windowTextFires || windowTreeFires
       if (windowFires) {
         issues += Issue(
           id              = s"plan-window-nopart-${sql.executionId}",

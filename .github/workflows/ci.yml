@@ -135,6 +135,7 @@ jobs:
             --conf spark.sparklens.output=text \
             --conf spark.sparklens.report.path=/tmp/spark-lens-report.txt \
             --conf spark.sql.adaptive.enabled=false \
+            --conf spark.sparklens.cache.sql.minExecCount=3 \
             integration-test/demo_job.py
 
       - name: Verify report content

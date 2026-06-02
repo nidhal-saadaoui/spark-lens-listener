@@ -315,9 +315,10 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
       val idx    = physicalPlan.indexOf(marker)
       if (idx >= 0) physicalPlan.substring(idx + marker.length).trim else physicalPlan
     }
-    val tree = toPlanNode(planInfo)
-    // Register Exchange-node accumulator IDs so onTaskEnd can collect their per-task values.
-    tree.nodesContaining("Exchange").flatMap(_.accumulatorIds).foreach(exchangeAccumIds += _)
+    val treeOpt = scala.util.Try(toPlanNode(planInfo)).toOption
+    treeOpt.foreach { tree =>
+      tree.nodesContaining("Exchange").flatMap(_.accumulatorIds).foreach(exchangeAccumIds += _)
+    }
     sqlExecutions(executionId) = SqlExecutionData(
       executionId      = executionId,
       description      = description,
@@ -325,16 +326,18 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
       startTimeMs      = startTimeMs,
       completionTimeMs = None,
       jobIds           = Nil,
-      planTree         = Some(tree),
+      planTree         = treeOpt,
     )
   }
 
   /** AQE rewrites the plan at runtime; replace the stored tree so analyzers see the final plan. */
   def onSqlPlanUpdate(executionId: Long, planInfo: SparkPlanInfo): Unit = {
     sqlExecutions.get(executionId).foreach { existing =>
-      val tree = toPlanNode(planInfo)
-      tree.nodesContaining("Exchange").flatMap(_.accumulatorIds).foreach(exchangeAccumIds += _)
-      sqlExecutions(executionId) = existing.copy(planTree = Some(tree))
+      val treeOpt = scala.util.Try(toPlanNode(planInfo)).toOption
+      treeOpt.foreach { tree =>
+        tree.nodesContaining("Exchange").flatMap(_.accumulatorIds).foreach(exchangeAccumIds += _)
+      }
+      sqlExecutions(executionId) = existing.copy(planTree = treeOpt.orElse(existing.planTree))
     }
   }
 
