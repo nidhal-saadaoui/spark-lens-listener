@@ -35,9 +35,29 @@ object Analyzers {
     YarnAnalyzer,
   )
 
-  def runAll(app: SparkAppModel): Seq[Issue] =
-    group(all.flatMap(_.analyze(app)))
+  def runAll(app: SparkAppModel): Seq[Issue] = {
+    val grouped = group(all.flatMap(_.analyze(app)))
       .sortBy(i => (i.severity.order, -i.estimatedImpact.flatMap(_.savedTimeMs).getOrElse(0L)))
+    linkRelated(grouped)
+  }
+
+  // Populates relatedIds on issues that share at least one affected stage with another
+  // issue AND both have quantifiable savedTimeMs. Related issues often share a root cause
+  // (e.g. coalesce(1) causing spill, low CPU, and single-task all on stage 1).
+  private[sparklens] def linkRelated(issues: Seq[Issue]): Seq[Issue] = {
+    val withSavings = issues.filter(_.estimatedImpact.flatMap(_.savedTimeMs).isDefined)
+    issues.map { issue =>
+      if (issue.affectedStages.isEmpty || issue.estimatedImpact.flatMap(_.savedTimeMs).isEmpty)
+        issue
+      else {
+        val stageSet = issue.affectedStages.toSet
+        val related  = withSavings
+          .filter(other => other.id != issue.id && other.affectedStages.exists(stageSet.contains))
+          .map(_.id)
+        issue.copy(relatedIds = related)
+      }
+    }
+  }
 
   // Strip trailing -<digits> to derive a stable group key (e.g. "spill-3" → "spill").
   // Issues sharing a group key are merged into one entry so the report stays readable

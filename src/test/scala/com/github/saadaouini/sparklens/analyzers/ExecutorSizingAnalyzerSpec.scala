@@ -207,6 +207,35 @@ class ExecutorSizingAnalyzerSpec extends AnyFlatSpec with Matchers {
       .filter(_.id.startsWith("executor-memory")) shouldBe empty
   }
 
+  it should "not use single-task stage peak when multi-task stages exist" in {
+    // Single-task (coalesce(1)) stage with 50 GB peak — should be excluded.
+    // Multi-task stage with 3 GB peak — 3 GB > 85% of 2.4 GB pool → fires.
+    // executor.memory=4g, memFraction=0.6 → pool=2.4 GB, 1 core → demand=3 GB (125% pool)
+    val singleTask = stageWithPeak(0, peakPerTask = 50L * GB, taskCount = 1)
+    val normalTask = stageWithPeak(1, peakPerTask = 3L  * GB)
+    val a = app(
+      stages = Map(0 -> singleTask, 1 -> normalTask),
+      props  = Map("spark.executor.memory" -> "4g", "spark.executor.cores" -> "1"),
+    )
+    val issues = ExecutorSizingAnalyzer.analyze(a).filter(_.id == "executor-memory-underprovisioned")
+    issues should not be empty
+    // Recommendation based on 3 GB peak, not 50 GB — should not suggest anything near 50+ GB
+    issues.head.metrics("p95_task_memory") shouldBe "3.0 GB"
+  }
+
+  it should "fall back to single-task stages when no multi-task long stages exist" in {
+    // executor.memory=2g, pool=1.2 GB, 1 core, peak=3 GB → demand=3 GB (250% pool) → fires
+    val singleTask = stageWithPeak(0, peakPerTask = 3L * GB, taskCount = 1)
+    val a = app(
+      stages = Map(0 -> singleTask),
+      props  = Map("spark.executor.memory" -> "2g", "spark.executor.cores" -> "1"),
+    )
+    val issues = ExecutorSizingAnalyzer.analyze(a)
+    issues.exists(_.id == "executor-memory-underprovisioned") shouldBe true
+    issues.find(_.id == "executor-memory-underprovisioned").get
+      .description should include("single-task stages only")
+  }
+
   it should "not flag under-provisioning when p95 demand exactly equals the memory pool" in {
     // executor.memory=4g, memFraction=0.6 → pool=2.4g
     // 1 core, p95 peak=2.4g → demand=2.4g = 100% exactly (not >85% boundary test)

@@ -51,12 +51,15 @@ object TextReporter extends Reporter {
       return sb.toString()
     }
 
-    // ── Priority Issues — top 3 by estimated savings ──────────────────────────
+    // ── Priority Issues — top N by estimated savings ──────────────────────────
     // Sort by absolute savings so the most impactful fix leads, regardless of severity.
+    // Configurable via spark.sparklens.report.maxPriorityFixes (default 5).
+    val maxPriority = app.prop("spark.sparklens.report.maxPriorityFixes")
+      .flatMap(s => scala.util.Try(s.toInt).toOption).getOrElse(5)
     val ranked = issues
       .filter(i => i.estimatedImpact.flatMap(_.savedTimeMs).exists(_ >= 1000L))
       .sortBy(i => -i.estimatedImpact.flatMap(_.savedTimeMs).getOrElse(0L))
-      .take(3)
+      .take(maxPriority)
     if (ranked.nonEmpty) {
       sb.append("\n  Priority fixes (estimated savings per run):\n")
       ranked.zipWithIndex.foreach { case (issue, idx) =>
@@ -150,6 +153,10 @@ object TextReporter extends Reporter {
       val jobs   = issue.affectedJobs
       if (stages.nonEmpty) sb.append(s"    stages: ${stages.mkString(", ")}\n")
       if (jobs.nonEmpty)   sb.append(s"    jobs:   ${jobs.mkString(", ")}\n")
+
+      // Related issues (shared stage → likely same root cause)
+      if (issue.relatedIds.nonEmpty)
+        sb.append(s"    note:   likely shares root cause with: ${issue.relatedIds.mkString(", ")}\n")
 
       sb.append("  · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·\n")
     }

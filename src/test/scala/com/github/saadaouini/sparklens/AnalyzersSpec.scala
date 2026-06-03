@@ -113,6 +113,31 @@ class AnalyzersSpec extends AnyFlatSpec with Matchers {
     result.head.title should include("[+1 more]")
   }
 
+  // ── relatedIds linking ────────────────────────────────────────────────────
+
+  "Analyzers.linkRelated" should "populate relatedIds for issues sharing an affected stage" in {
+    val imp = Some(EstimatedImpact("s", Some(5000L), None, "medium"))
+    val issues = Seq(
+      Issue("spill-1",  Warning, "spill", "Spill Stage 1",  "d", "r", affectedStages = Seq(1), estimatedImpact = imp),
+      Issue("cpu-1",    Info,    "io",    "CPU Stage 1",    "d", "r", affectedStages = Seq(1), estimatedImpact = imp),
+      Issue("gc-2",     Warning, "gc",    "GC Stage 2",     "d", "r", affectedStages = Seq(2), estimatedImpact = imp),
+    )
+    val linked = Analyzers.linkRelated(issues)
+    linked.find(_.id == "spill-1").get.relatedIds should contain("cpu-1")
+    linked.find(_.id == "cpu-1").get.relatedIds   should contain("spill-1")
+    linked.find(_.id == "gc-2").get.relatedIds    shouldBe empty
+  }
+
+  it should "not populate relatedIds for issues without savedTimeMs" in {
+    val withSavings  = Issue("spill-1", Warning, "spill", "Spill", "d", "r",
+      affectedStages = Seq(1), estimatedImpact = Some(EstimatedImpact("s", Some(5000L), None, "medium")))
+    val noSavings    = Issue("config-x", Info, "config", "Config", "d", "r",
+      affectedStages = Seq(1), estimatedImpact = Some(EstimatedImpact("s", None, None, "low")))
+    val linked = Analyzers.linkRelated(Seq(withSavings, noSavings))
+    linked.find(_.id == "spill-1").get.relatedIds shouldBe empty
+    linked.find(_.id == "config-x").get.relatedIds shouldBe empty
+  }
+
   // ── end-to-end: grouping in runAll ────────────────────────────────────────
 
   "Analyzers.runAll" should "group spill issues from multiple stages into one" in {

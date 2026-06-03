@@ -43,9 +43,13 @@ object DynamicAllocationAnalyzer extends Analyzer {
           "On Spark 2.x or CDH/HDP clusters that already run the External Shuffle " +
           "Service on every NodeManager, enable it via the second option instead.",
         configFix       = Some(
-          "spark.dynamicAllocation.shuffleTracking.enabled=true\n" +
-          "# OR for Spark 2.x / clusters with External Shuffle Service:\n" +
-          "# spark.shuffle.service.enabled=true"
+          if (majorVersion(app) >= 3)
+            "spark.dynamicAllocation.shuffleTracking.enabled=true\n" +
+            "# OR if your cluster runs the External Shuffle Service:\n" +
+            "# spark.shuffle.service.enabled=true"
+          else
+            "spark.shuffle.service.enabled=true\n" +
+            "# shuffleTracking.enabled requires Spark 3.0+"
         ),
         estimatedImpact = Some(configRisk),
       )

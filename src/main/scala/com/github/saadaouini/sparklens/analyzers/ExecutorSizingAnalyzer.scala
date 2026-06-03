@@ -53,8 +53,13 @@ object ExecutorSizingAnalyzer extends Analyzer {
     val numExecutors = app.executors.size
 
     // ── 1. Executor memory analysis ───────────────────────────────────────────
-    // Only consider stages with real duration and peak memory data.
-    val longStages = app.stages.values.filter(s => s.durationMs > 5000L && s.avgPeakExecutionMemory > 0)
+    // Exclude single-task stages (coalesce(1), repartition(1), etc.) — they process
+    // the full dataset in one task and would inflate the per-task memory recommendation
+    // for all other stages. Fall back to include them only when no multi-task stages exist.
+    val allLongStages  = app.stages.values.filter(s => s.durationMs > 5000L && s.avgPeakExecutionMemory > 0)
+    val multiTaskStages = allLongStages.filter(_.numTasks > 1)
+    val (longStages, singleTaskFallback) =
+      if (multiTaskStages.nonEmpty) (multiTaskStages, false) else (allLongStages, true)
     // Use p95 of task-sample peaks when available; fall back to avg when the task
     // sample is empty (only exact aggregates recorded).
     val stagePeaks = longStages.map { s =>
@@ -96,7 +101,7 @@ object ExecutorSizingAnalyzer extends Analyzer {
             s"With $coresPerExec core(s) per executor, concurrent tasks can demand " +
             s"${fmtBytes(peakTotalDemand)} peak memory but the execution pool is only " +
             s"${fmtBytes(execMemPool)} (${fmtDouble(memFraction * 100, 0)}% of " +
-            s"${fmtBytes(currentMem)}).${if (hasSpill) " Disk spill detected — this is already causing I/O overhead." else " Risk of disk spill under peak load."}",
+            s"${fmtBytes(currentMem)}).${if (hasSpill) " Disk spill detected — this is already causing I/O overhead." else " Risk of disk spill under peak load."}${if (singleTaskFallback) " Note: peak estimate is based on single-task stages only — consider fixing coalesce(1) or repartition(1) before tuning memory." else ""}",
           recommendation  =
             s"Raise spark.executor.memory to ${fmtGiB(recommended)}. " +
             s"This provides ${fmtBytes((recommended * memFraction).toLong)} execution pool " +

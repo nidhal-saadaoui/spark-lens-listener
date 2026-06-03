@@ -22,8 +22,9 @@ object JoinAnalyzer extends Analyzer {
       } yield stage.totalShuffleRemoteBytes + stage.totalShuffleLocalBytes).sum
 
     app.sqlExecutions.values.foreach { sql =>
-      val plan = sql.physicalPlan
-      val desc = sql.description
+      val plan          = sql.physicalPlan
+      val desc          = sql.description
+      val sqlDurationMs = sql.completionTimeMs.map(_ - sql.startTimeMs).getOrElse(Long.MaxValue)
 
       // Prefer planTree for join-type detection: planTree reflects the FINAL executed plan
       // (updated by SparkListenerSQLAdaptiveExecutionUpdate for AQE queries) so a join that
@@ -43,7 +44,7 @@ object JoinAnalyzer extends Analyzer {
 
         if (broadcastThresholdConf < 0) {
           val shuffleBytes = shuffleBytesForExec(sql)
-          val penaltyMs    = networkMs(shuffleBytes, networkSpeedMbps)
+          val penaltyMs    = math.min(networkMs(shuffleBytes, networkSpeedMbps), sqlDurationMs)
           val smjImpact    = EstimatedImpact(
             summary     = s"~${fmtBytes(shuffleBytes)} shuffled per run; with broadcast: 0 shuffle bytes, ~${fmtMs(penaltyMs)} saved",
             savedTimeMs = timeOpt(penaltyMs),
@@ -95,7 +96,7 @@ object JoinAnalyzer extends Analyzer {
       }
       if (shuffleCount >= excessiveShuffleCount) {
         val totalShuffleBytes = shuffleBytesForExec(sql)
-        val penaltyMs         = networkMs(totalShuffleBytes, networkSpeedMbps)
+        val penaltyMs         = math.min(networkMs(totalShuffleBytes, networkSpeedMbps), sqlDurationMs)
         val excessImpact      = EstimatedImpact(
           summary     = s"$shuffleCount shuffle exchanges, ~${fmtBytes(totalShuffleBytes)} total shuffle per run, ~${fmtMs(penaltyMs)} network cost",
           savedTimeMs = timeOpt(penaltyMs),
@@ -145,7 +146,7 @@ object JoinAnalyzer extends Analyzer {
           val excessBytes = totalOut - totalIn
           val explImpact  = EstimatedImpact(
             summary     = s"output ${fmtBytes(totalOut)} is ${fmtDouble(ratio, 1)}× input ${fmtBytes(totalIn)}",
-            savedTimeMs = timeOpt(networkMs(excessBytes, networkSpeedMbps)),
+            savedTimeMs = timeOpt(math.min(networkMs(excessBytes, networkSpeedMbps), sqlDurationMs)),
             savedBytes  = bytesOpt(excessBytes),
             confidence  = "medium",
           )

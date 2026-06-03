@@ -27,4 +27,5 @@ case class Issue(
   affectedJobs:   Seq[Int]        = Nil,
   metrics:        Map[String, String] = Map.empty,
   estimatedImpact: Option[EstimatedImpact] = None,
+  relatedIds:     Seq[String]         = Nil,
 )

@@ -1,6 +1,6 @@
 package com.github.saadaouini.sparklens.analyzers
 
-import com.github.saadaouini.sparklens.model.{Info, Warning}
+import com.github.saadaouini.sparklens.model.{Critical, Info, Warning}
 import AnalyzerFixtures._
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -54,5 +54,28 @@ class SpeculationAnalyzerSpec extends AnyFlatSpec with Matchers {
     val issues = SpeculationAnalyzer.analyze(app(props = Map("spark.speculation" -> "true")))
     issues should have size 1
     issues.head.severity shouldBe Info
+  }
+
+  it should "emit Critical when speculation fires on a write stage (duplicate-row risk)" in {
+    val writeStage = stage(stageId = 0,
+      tasks = Seq(task(speculative = true))).copy(details = "insertInto at HiveWriter.scala:42")
+    val issues = SpeculationAnalyzer.analyze(app(
+      stages = Map(0 -> writeStage),
+      props  = Map("spark.speculation" -> "true"),
+    ))
+    val issue = issues.find(_.id == "speculation-active").get
+    issue.severity shouldBe Critical
+    issue.description should include("duplicate")
+    issue.configFix.get should include("spark.speculation=false")
+  }
+
+  it should "emit Warning (not Critical) when speculation fires on a non-write stage" in {
+    val computeStage = stage(stageId = 0,
+      tasks = Seq(task(speculative = true))).copy(details = "count at App.scala:10")
+    val issues = SpeculationAnalyzer.analyze(app(
+      stages = Map(0 -> computeStage),
+      props  = Map("spark.speculation" -> "true"),
+    ))
+    issues.find(_.id == "speculation-active").get.severity shouldBe Warning
   }
 }

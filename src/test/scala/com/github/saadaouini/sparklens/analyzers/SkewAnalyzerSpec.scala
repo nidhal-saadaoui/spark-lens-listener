@@ -186,6 +186,20 @@ class SkewAnalyzerSpec extends AnyFlatSpec with Matchers {
     val exec     = sqlExec(id = 5L, planTree = Some(planNode("root", children = Seq(exchNode))))
     SkewAnalyzer.analyze(app(sqlExecs = Map(5L -> exec))).filter(_.id.startsWith("skew-")) shouldBe empty
   }
+
+  it should "cap exchange penalty savings at SQL execution duration" in {
+    // sqlExec defaults: startTimeMs=0, completionTimeMs=5000 → sqlDurationMs=5000ms
+    // 1 task holds 100 GB of hot data → raw networkMs >> 5000ms → cap at 5000ms
+    val taskDist: Map[Long, Long] =
+      (500L until 510L).map { id =>
+        id -> (if (id == 500L) 100L * GB else 100L * 1024L)
+      }.toMap
+    val exchNode = planNode("ShuffleExchange", accumIds = taskDist.keys.toSeq, metrics = taskDist)
+    val exec = sqlExec(id = 6L, planTree = Some(planNode("root", children = Seq(exchNode))))
+    val issues = SkewAnalyzer.analyze(app(sqlExecs = Map(6L -> exec))).filter(_.id.startsWith("skew-"))
+    issues should not be empty
+    issues.head.estimatedImpact.flatMap(_.savedTimeMs).foreach(_ should be <= 5000L)
+  }
   // ── p75 / Max skew check (mirrors Databricks guide threshold) ───────────────
 
   it should "fire Warning when max task duration is > 1.5× p75" in {

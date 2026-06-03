@@ -119,15 +119,16 @@ object AnalyzerFixtures {
   )
 
   def app(
-    stages:     Map[Int, StageData]         = Map.empty,
-    jobs:       Map[Int, JobData]           = Map.empty,
-    props:      Map[String, String]         = Map.empty,
-    sqlExecs:   Map[Long, SqlExecutionData] = Map.empty,
-    executors:  Map[String, ExecutorData]   = Map.empty,
+    stages:       Map[Int, StageData]         = Map.empty,
+    jobs:         Map[Int, JobData]           = Map.empty,
+    props:        Map[String, String]         = Map.empty,
+    sqlExecs:     Map[Long, SqlExecutionData] = Map.empty,
+    executors:    Map[String, ExecutorData]   = Map.empty,
+    sparkVersion: String                      = "3.5.0",
   ): SparkAppModel = SparkAppModel(
     appId           = "test-001",
     appName         = "TestApp",
-    sparkVersion    = "3.5.0",
+    sparkVersion    = sparkVersion,
     startTimeMs     = 0L,
     endTimeMs       = Some(300000L),
     sparkProperties = props,

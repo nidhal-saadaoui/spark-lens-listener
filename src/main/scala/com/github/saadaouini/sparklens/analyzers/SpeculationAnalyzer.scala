@@ -14,14 +14,29 @@ object SpeculationAnalyzer extends Analyzer {
     }.sum
 
     if (speculationEnabled && speculativeTasks > 0) {
+      val hasWriteStage = app.stages.values.exists { s =>
+        val cs = s.callSite.toLowerCase
+        cs.contains("insertinto") || cs.contains(".write.") || cs.contains("saveastable") ||
+        cs.contains("datawritingcommand")
+      }
+      val severity = if (hasWriteStage) Critical else Warning
+      val dupNote  = if (hasWriteStage)
+        " RISK: speculative tasks on write stages can commit duplicate rows to non-idempotent sinks (Hive, JDBC). Disable speculation or ensure the sink is idempotent."
+      else ""
       issues += Issue(
         id              = "speculation-active",
-        severity        = Warning,
+        severity        = severity,
         category        = "config",
-        title           = s"Speculation Fired $speculativeTasks Speculative Task(s) — Masking Skew",
-        description     = s"Spark launched $speculativeTasks speculative copies of slow tasks. Speculation treats the symptom (slow tasks) not the cause (data skew or straggler executor).",
-        recommendation  = "Identify the root cause of slow tasks: check SkewAnalyzer results. Fix skew with key salting or AQE instead of relying on speculation.",
-        configFix       = Some("spark.sql.adaptive.skewJoin.enabled=true  # fix the root cause"),
+        title           = s"Speculation Fired $speculativeTasks Speculative Task(s) — Masking Skew${if (hasWriteStage) " + Duplicate-Row Risk" else ""}",
+        description     = s"Spark launched $speculativeTasks speculative copies of slow tasks. Speculation treats the symptom (slow tasks) not the cause (data skew or straggler executor).$dupNote",
+        recommendation  = if (hasWriteStage)
+          "Disable speculation on jobs that write to non-idempotent sinks (Hive, JDBC). Fix the root cause of slow tasks with AQE skew join handling or key salting."
+        else
+          "Identify the root cause of slow tasks: check SkewAnalyzer results. Fix skew with key salting or AQE instead of relying on speculation.",
+        configFix       = Some(if (hasWriteStage)
+          "spark.speculation=false  # required for non-idempotent write sinks"
+        else
+          "spark.sql.adaptive.skewJoin.enabled=true  # fix the root cause"),
         metrics         = Map("speculative_tasks" -> speculativeTasks.toString),
         estimatedImpact = Some(configRisk),
       )

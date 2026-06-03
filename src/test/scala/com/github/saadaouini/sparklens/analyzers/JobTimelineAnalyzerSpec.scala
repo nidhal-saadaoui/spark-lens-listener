@@ -84,4 +84,50 @@ class JobTimelineAnalyzerSpec extends AnyFlatSpec with Matchers {
     gap.estimatedImpact.get.confidence shouldBe "high"
     gap.estimatedImpact.get.savedTimeMs shouldBe Some(89000L)
   }
+
+  // ── Intra-job stage gap ────────────────────────────────────────────────────
+
+  it should "flag a large driver idle gap between consecutive stages in the same job" in {
+    // Stage 0 completes at t=10000, stage 1 submitted at t=30000 → 20s gap > 10s default
+    val s0 = stage(stageId = 0, submitMs = Some(0L),   completeMs = Some(10000L))
+    val s1 = stage(stageId = 1, submitMs = Some(30000L), completeMs = Some(35000L))
+    val j0 = job(jobId = 0, stageIds = Seq(0, 1))
+    val issues = JobTimelineAnalyzer.analyze(app(
+      stages = Map(0 -> s0, 1 -> s1),
+      jobs   = Map(0 -> j0),
+    ))
+    val stageGap = issues.filter(_.id.startsWith("driver-stage-gap"))
+    stageGap should not be empty
+    stageGap.head.estimatedImpact.flatMap(_.savedTimeMs) shouldBe Some(20000L)
+  }
+
+  it should "not flag stage gaps below the threshold" in {
+    // 5s gap with default 10s threshold — should not fire
+    val s0 = stage(stageId = 0, submitMs = Some(0L),    completeMs = Some(10000L))
+    val s1 = stage(stageId = 1, submitMs = Some(15000L), completeMs = Some(20000L))
+    val j0 = job(jobId = 0, stageIds = Seq(0, 1))
+    JobTimelineAnalyzer.analyze(app(stages = Map(0 -> s0, 1 -> s1), jobs = Map(0 -> j0)))
+      .filter(_.id.startsWith("driver-stage-gap")) shouldBe empty
+  }
+
+  it should "not fire stage gap when stages have no timing data" in {
+    val s0 = stage(stageId = 0).copy(submissionTimeMs = None, completionTimeMs = None)
+    val s1 = stage(stageId = 1).copy(submissionTimeMs = None, completionTimeMs = None)
+    val j0 = job(jobId = 0, stageIds = Seq(0, 1))
+    JobTimelineAnalyzer.analyze(app(stages = Map(0 -> s0, 1 -> s1), jobs = Map(0 -> j0)))
+      .filter(_.id.startsWith("driver-stage-gap")) shouldBe empty
+  }
+
+  it should "respect custom spark.sparklens.timeline.stageGapWarnMs threshold" in {
+    // 8s gap — below default 10s but above custom 5s
+    val s0 = stage(stageId = 0, submitMs = Some(0L),    completeMs = Some(10000L))
+    val s1 = stage(stageId = 1, submitMs = Some(18000L), completeMs = Some(25000L))
+    val j0 = job(jobId = 0, stageIds = Seq(0, 1))
+    val issues = JobTimelineAnalyzer.analyze(app(
+      stages = Map(0 -> s0, 1 -> s1),
+      jobs   = Map(0 -> j0),
+      props  = Map("spark.sparklens.timeline.stageGapWarnMs" -> "5000"),
+    ))
+    issues.filter(_.id.startsWith("driver-stage-gap")) should not be empty
+  }
 }

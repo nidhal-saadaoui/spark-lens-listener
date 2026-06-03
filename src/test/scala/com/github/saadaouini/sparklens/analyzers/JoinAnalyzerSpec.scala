@@ -228,4 +228,23 @@ class JoinAnalyzerSpec extends AnyFlatSpec with Matchers {
     )).filter(_.id.startsWith("join-exploding")) shouldBe empty
   }
 
+  it should "cap savings at SQL execution duration when shuffle bytes are very large" in {
+    // sqlExec defaults: startTimeMs=0, completionTimeMs=5000 → sqlDurationMs=5000ms
+    // 100 GB at 1 GB/s → raw penaltyMs = 100s = 100000ms >> 5000ms → cap at 5000ms
+    val plan = Seq.fill(5)("Exchange hashpartitioning(k#1, 200)").mkString("\n")
+    val job0 = job(jobId = 0, stageIds = Seq(0))
+    val s0   = stage(stageId = 0).copy(
+      hasExactAggregates       = true,
+      exactShuffleBytesWritten = 100L * GB,
+    )
+    val a = app(
+      jobs     = Map(0 -> job0),
+      stages   = Map(0 -> s0),
+      sqlExecs = Map(0L -> sqlExec(plan = plan, jobIds = Seq(0))),
+    )
+    val issues = JoinAnalyzer.analyze(a).filter(_.id.startsWith("join-excessive"))
+    issues should not be empty
+    issues.head.estimatedImpact.flatMap(_.savedTimeMs).foreach(_ should be <= 5000L)
+  }
+
 }

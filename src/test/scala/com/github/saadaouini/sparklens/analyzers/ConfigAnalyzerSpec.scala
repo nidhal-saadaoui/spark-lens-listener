@@ -17,6 +17,18 @@ class ConfigAnalyzerSpec extends AnyFlatSpec with Matchers {
     issues.exists(_.id == "config-aqe-disabled") shouldBe false
   }
 
+  it should "not flag AQE disabled on Spark 2.x — AQE does not exist there" in {
+    val issues = ConfigAnalyzer.analyze(app(sparkVersion = "2.4.8"))
+    issues.exists(_.id == "config-aqe-disabled") shouldBe false
+  }
+
+  it should "not flag AQE skew disabled on Spark 2.x" in {
+    val issues = ConfigAnalyzer.analyze(app(
+      sparkVersion = "2.4.8",
+      props = Map("spark.sql.adaptive.enabled" -> "true", "spark.sql.adaptive.skewJoin.enabled" -> "false")))
+    issues.exists(_.id == "config-aqe-skew-disabled") shouldBe false
+  }
+
   it should "flag Java serializer" in {
     val issues = ConfigAnalyzer.analyze(app())
     issues.exists(_.id == "config-java-serializer") shouldBe true
@@ -165,5 +177,34 @@ class ConfigAnalyzerSpec extends AnyFlatSpec with Matchers {
     // Only 1 executor × 4 cores = 4 total cores — well below threshold
     val issues = ConfigAnalyzer.analyze(app())
     issues.exists(_.id == "config-max-reqs-in-flight") shouldBe false
+  }
+
+  it should "flag parallelism mismatch when default.parallelism is 4× shuffle.partitions" in {
+    val issues = ConfigAnalyzer.analyze(app(props = Map(
+      "spark.default.parallelism"       -> "800",
+      "spark.sql.shuffle.partitions"    -> "200",
+    )))
+    issues.exists(_.id == "config-parallelism-mismatch") shouldBe true
+  }
+
+  it should "flag parallelism mismatch when shuffle.partitions is 4× default.parallelism" in {
+    val issues = ConfigAnalyzer.analyze(app(props = Map(
+      "spark.default.parallelism"       -> "50",
+      "spark.sql.shuffle.partitions"    -> "400",
+    )))
+    issues.exists(_.id == "config-parallelism-mismatch") shouldBe true
+  }
+
+  it should "not flag parallelism when values are within 2×" in {
+    val issues = ConfigAnalyzer.analyze(app(props = Map(
+      "spark.default.parallelism"       -> "400",
+      "spark.sql.shuffle.partitions"    -> "200",
+    )))
+    issues.exists(_.id == "config-parallelism-mismatch") shouldBe false
+  }
+
+  it should "not flag parallelism mismatch when only one setting is present" in {
+    val issues = ConfigAnalyzer.analyze(app(props = Map("spark.default.parallelism" -> "800")))
+    issues.exists(_.id == "config-parallelism-mismatch") shouldBe false
   }
 }

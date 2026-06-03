@@ -12,7 +12,7 @@ object ConfigAnalyzer extends Analyzer {
     def get(key: String)    = p.get(key)
     def getOrElse(key: String, default: String) = p.getOrElse(key, default)
 
-    if (getOrElse("spark.sql.adaptive.enabled", "false").toLowerCase != "true") {
+    if (majorVersion(app) >= 3 && getOrElse("spark.sql.adaptive.enabled", "false").toLowerCase != "true") {
       issues += Issue(
         id              = "config-aqe-disabled",
         severity        = Warning,
@@ -71,7 +71,8 @@ object ConfigAnalyzer extends Analyzer {
       )
     }
 
-    if (getOrElse("spark.sql.adaptive.enabled", "false").toLowerCase == "true" &&
+    if (majorVersion(app) >= 3 &&
+        getOrElse("spark.sql.adaptive.enabled", "false").toLowerCase == "true" &&
         getOrElse("spark.sql.adaptive.skewJoin.enabled", "true").toLowerCase != "true") {
       issues += Issue(
         id              = "config-aqe-skew-disabled",
@@ -168,6 +169,40 @@ object ConfigAnalyzer extends Analyzer {
         configFix       = Some("spark.reducer.maxReqsInFlight=500"),
         estimatedImpact = Some(configRisk),
       )
+    }
+
+    // ── spark.default.parallelism vs spark.sql.shuffle.partitions mismatch ──────
+    // When both are explicitly set and differ by more than 2×, RDD operations and
+    // DataFrame shuffle operations use very different parallelism levels, causing
+    // unpredictable stage sizes and confusing resource utilisation.
+    val defaultPar = get("spark.default.parallelism").flatMap(s => scala.util.Try(s.toInt).toOption)
+    val shufflePar = get("spark.sql.shuffle.partitions").flatMap(s => scala.util.Try(s.toInt).toOption)
+    (defaultPar, shufflePar) match {
+      case (Some(dp), Some(sp)) if dp > 0 && sp > 0 &&
+          (dp.toDouble / sp > 2.0 || sp.toDouble / dp > 2.0) =>
+        val (larger, smaller, largerName, smallerName) =
+          if (dp > sp) (dp, sp, "spark.default.parallelism", "spark.sql.shuffle.partitions")
+          else         (sp, dp, "spark.sql.shuffle.partitions", "spark.default.parallelism")
+        issues += Issue(
+          id              = "config-parallelism-mismatch",
+          severity        = Info,
+          category        = "config",
+          title           = s"Parallelism Mismatch — $largerName ($larger) is ${fmtDouble(larger.toDouble / smaller, 1)}× $smallerName ($smaller)",
+          description     =
+            s"spark.default.parallelism=$dp and spark.sql.shuffle.partitions=$sp differ by more than 2×. " +
+            s"RDD operations (cogroup, reduceByKey, etc.) use $dp partitions; DataFrame shuffles use $sp. " +
+            s"This causes inconsistent task counts across stages and can leave executors idle after shuffles.",
+          recommendation  =
+            s"Align the two settings. For DataFrame-heavy workloads set both to the same value, " +
+            s"or enable AQE to auto-tune spark.sql.shuffle.partitions at runtime.",
+          configFix       = Some(
+            s"spark.default.parallelism=$sp  # match shuffle.partitions\n" +
+            s"# OR enable AQE to manage shuffle partitions automatically:\n" +
+            s"# spark.sql.adaptive.enabled=true"
+          ),
+          estimatedImpact = Some(configRisk),
+        )
+      case _ =>
     }
 
     issues.toSeq

@@ -87,6 +87,50 @@ object JobTimelineAnalyzer extends Analyzer {
         ))
       }
 
-    gapIssues ++ fragIssues
+    // ── Intra-job stage gap detection ─────────────────────────────────────────
+    // Detects when the driver idles between consecutive stages within the same job.
+    // Gaps here indicate blocking driver-side work (collect, Python processing, etc.)
+    // happening inside a single action rather than between actions.
+    val stageGapWarnMs = propLong(app, "spark.sparklens.timeline.stageGapWarnMs", 10000L)
+    val stageGapIssues: Seq[Issue] = app.jobs.values.toSeq.flatMap { job =>
+      val sortedStages = job.stageIds
+        .flatMap(app.stages.get)
+        .filter(s => s.submissionTimeMs.isDefined && s.completionTimeMs.isDefined)
+        .sortBy(_.submissionTimeMs)
+      sortedStages.sliding(2).toSeq.flatMap {
+        case Seq(prev, next) =>
+          val gap = for {
+            prevEnd   <- prev.completionTimeMs
+            nextStart <- next.submissionTimeMs
+            g = nextStart - prevEnd if g > stageGapWarnMs
+          } yield g
+          gap.map { g =>
+            Issue(
+              id              = s"driver-stage-gap-${next.stageId}",
+              severity        = Warning,
+              category        = "io",
+              title           = s"Driver Idle ${fmtMs(g)} Between Stage ${prev.stageId} and Stage ${next.stageId} (Job ${job.jobId})",
+              description     =
+                s"The driver paused for ~${fmtMs(g)} between stage ${prev.stageId} and stage ${next.stageId} " +
+                s"within job ${job.jobId}. This is blocking driver-side work happening inside a single action: " +
+                "collecting results from stage outputs, running Python logic, or waiting on an external call.",
+              recommendation  =
+                "Move driver-side processing into distributed stages using DataFrame transformations. " +
+                "Avoid collect() inside a loop — use mapPartitions, foreachPartition, or a UDF instead.",
+              affectedStages  = Seq(prev.stageId, next.stageId),
+              affectedJobs    = Seq(job.jobId),
+              estimatedImpact = Some(EstimatedImpact(
+                summary     = s"~${fmtMs(g)} driver idle time within job ${job.jobId}",
+                savedTimeMs = timeOpt(g),
+                savedBytes  = None,
+                confidence  = "medium",
+              )),
+            )
+          }.toSeq
+        case _ => Nil
+      }
+    }
+
+    gapIssues ++ fragIssues ++ stageGapIssues
   }
 }

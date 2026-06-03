@@ -54,6 +54,11 @@ trait Analyzer {
   protected def propDouble(app: SparkAppModel, key: String, default: Double): Double =
     app.prop(key).flatMap(s => scala.util.Try(s.toDouble).toOption).getOrElse(default)
 
+  // Parses "3.3.2", "2.4.8", "3.3.2.3.3.7151000.5-2" → major integer (3, 2, 3, …)
+  protected def majorVersion(app: SparkAppModel): Int =
+    app.sparkVersion.split("[.\\-]").headOption
+      .flatMap(s => scala.util.Try(s.toInt).toOption).getOrElse(0)
+
   // ── Plan-text utilities ─────────────────────────────────────────────────────
 
   /** Returns only the plan-tree section of a FORMATTED plan, stripping per-node detail blocks

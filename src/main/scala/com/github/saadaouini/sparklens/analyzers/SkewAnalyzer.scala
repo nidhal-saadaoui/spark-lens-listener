@@ -194,6 +194,7 @@ object SkewAnalyzer extends Analyzer {
     // (hot-key case where 90%+ of data lands on one partition, leaving 90%+ of tasks empty).
     val networkSpeedMbps = propLong(app, "spark.sparklens.impact.networkSpeedMbps", 1024L)
     val sqlSkewIssues: Seq[Issue] = app.sqlExecutions.values.toSeq.flatMap { sql =>
+      val sqlDurationMs = sql.completionTimeMs.map(_ - sql.startTimeMs).getOrElse(Long.MaxValue)
       sql.planTree.toSeq.flatMap { tree =>
         tree.nodesContaining("Exchange").flatMap { node =>
           // resolvedMetrics: accumulatorId → sum-of-per-task-updates.
@@ -211,7 +212,7 @@ object SkewAnalyzer extends Analyzer {
               val p50       = percentile(taskBytes, 50)
               val p95       = percentile(taskBytes, 95)
               val hotBytes  = (total * conc).toLong
-              val penaltyMs = networkMs(hotBytes, networkSpeedMbps)
+              val penaltyMs = math.min(networkMs(hotBytes, networkSpeedMbps), sqlDurationMs)
               val exchImpact = EstimatedImpact(
                 summary     = s"~${fmtBytes(hotBytes)} in top 5% of partitions (${concPct}%), ~${fmtMs(penaltyMs)} network penalty",
                 savedTimeMs = timeOpt(penaltyMs),
