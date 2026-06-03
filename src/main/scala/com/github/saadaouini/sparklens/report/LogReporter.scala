@@ -14,10 +14,9 @@ import com.github.saadaouini.sparklens.model.{Critical, Info, Issue, SparkAppMod
  * [spark-lens] INFO     id=config-aqe       category=config  title="Adaptive Query Execution Disabled"                  fix="spark.sql.adaptive.enabled=true"
  * }}}
  *
- * When [[write]] is called without a report path, it writes to stdout — the driver
- * captures stdout in the application log automatically (YARN, K8s, Databricks).
- * [[renderLines]] returns (javaLogLevel, line) pairs for callers that prefer to
- * route through a Java logger directly.
+ * Without a path the listener routes each line through SLF4J (respecting all configured
+ * appenders) with a stderr fallback when log4j2 is already shutting down.
+ * [[renderLines]] returns (javaLogLevel, line) pairs for use in tests or custom routing.
  */
 object LogReporter extends Reporter {
 

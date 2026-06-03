@@ -33,7 +33,9 @@ import org.slf4j.LoggerFactory
  *                       A format-specific path takes priority:
  *                         spark.sparklens.report.path.json=hdfs://bucket/report.json
  *                         spark.sparklens.report.path.text=/tmp/report.txt
- *                       Omit to write to driver stdout (log mode writes to driver logger).
+ *                       Required for text, json, and html. Optional for log: without a
+ *                       path the log format routes through SLF4J so all configured
+ *                       appenders (console, Splunk, Datadog, etc.) receive the output.
  *
  *   fail.on           — critical | warning | info | none
  *                       Throw at app end if issues at this severity or above are found.
@@ -114,6 +116,13 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
     val failInfo = failOn.map(f => s", fail.on=$f").getOrElse("")
     val fmt = if (activeFormats.nonEmpty) activeFormats else "off"
     log.info(s"spark-lens attached (output=$fmt$pathInfo$failInfo)")
+    (outputFormats - "off" - "log").foreach { fmt =>
+      if (pathFor(fmt).isEmpty)
+        throw new IllegalArgumentException(
+          s"spark-lens: output=$fmt requires a report path. " +
+          s"Set spark.sparklens.report.path or spark.sparklens.report.path.$fmt."
+        )
+    }
   }
 
   override def onEnvironmentUpdate(e: SparkListenerEnvironmentUpdate): Unit =
@@ -192,6 +201,16 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
     }
   }
 
+  // Returns true when log4j2 is on the classpath and its LoggerContext is still running.
+  // Used to decide whether SLF4J routing is safe at application end; falls back to
+  // System.err when log4j2 is absent or already in its shutdown sequence.
+  private def isLog4j2Active: Boolean = try {
+    val logMgr = Class.forName("org.apache.logging.log4j.LogManager")
+    val ctx     = logMgr.getMethod("getContext", classOf[Boolean])
+                        .invoke(null, false.asInstanceOf[AnyRef])
+    ctx.getClass.getMethod("getState").invoke(ctx).toString == "STARTED"
+  } catch { case _: Exception => false }
+
   private def emitFormat(
     format: String,
     app:    model.SparkAppModel,
@@ -205,16 +224,17 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
         if (path.isDefined) {
           LogReporter.write(app, issues, path)
         } else {
-          // No path → write through SLF4J (same pipeline as Spark, correct format)
-          // then flush stdout. SLF4J goes through log4j/logback appenders which may
-          // be draining at application end — the flush ensures the lines are captured
-          // by log collectors (YARN, K8s, Databricks) before the process exits.
           import java.util.logging.Level.{WARNING => JUL_WARN}
-          LogReporter.renderLines(app, issues).foreach {
-            case (JUL_WARN, line) => log.warn(line)
-            case (_,        line) => log.info(line)
+          val lines = LogReporter.renderLines(app, issues)
+          if (isLog4j2Active) {
+            lines.foreach {
+              case (JUL_WARN, line) => log.warn(line)
+              case (_,        line) => log.info(line)
+            }
+          } else {
+            lines.foreach { case (_, line) => System.err.println(line) }
+            System.err.flush()
           }
-          System.out.flush()
         }
       case _ => TextReporter.write(app, issues, path)
     }
