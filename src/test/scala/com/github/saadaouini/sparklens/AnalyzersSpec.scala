@@ -81,6 +81,29 @@ class AnalyzersSpec extends AnyFlatSpec with Matchers {
     result.head.title should include("[+1 more queries]")
   }
 
+  it should "sum savedTimeMs and savedBytes across grouped issues" in {
+    val imp = (ms: Long, b: Long) => Some(EstimatedImpact("s", Some(ms), Some(b), "medium"))
+    val issues = Seq(
+      Issue("cpu-0", Info, "io", "Low CPU Stage 0", "d", "r", affectedStages = Seq(0), estimatedImpact = imp(5000L, 100L)),
+      Issue("cpu-1", Info, "io", "Low CPU Stage 1", "d", "r", affectedStages = Seq(1), estimatedImpact = imp(3000L, 200L)),
+    )
+    val result = Analyzers.group(issues)
+    result should have size 1
+    result.head.estimatedImpact.flatMap(_.savedTimeMs) shouldBe Some(8000L)
+    result.head.estimatedImpact.flatMap(_.savedBytes)  shouldBe Some(300L)
+  }
+
+  it should "recover savings when rep has no estimatedImpact but other issues do" in {
+    val imp = Some(EstimatedImpact("s", Some(4000L), None, "medium"))
+    val issues = Seq(
+      Issue("cpu-0", Info, "io", "Low CPU Stage 0", "d", "r", affectedStages = Seq(0), estimatedImpact = None),
+      Issue("cpu-1", Info, "io", "Low CPU Stage 1", "d", "r", affectedStages = Seq(1), estimatedImpact = imp),
+    )
+    val result = Analyzers.group(issues)
+    result should have size 1
+    result.head.estimatedImpact.flatMap(_.savedTimeMs) shouldBe Some(4000L)
+  }
+
   it should "use generic suffix when both stages and jobs are empty" in {
     val issues = Seq(
       Issue("cache-111", Warning, "cache", "Repeated Scan", "d", "r"),

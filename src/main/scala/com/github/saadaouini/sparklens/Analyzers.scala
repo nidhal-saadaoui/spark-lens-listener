@@ -54,16 +54,34 @@ object Analyzers {
         val allStages = sorted.flatMap(_.affectedStages).distinct.sorted
         val allJobs   = sorted.flatMap(_.affectedJobs).distinct.sorted
         val suffix = (allStages.nonEmpty, allJobs.nonEmpty) match {
-          case (true,  true)  => s" [+$extra more]"           // both present: use generic
+          case (true,  true)  => s" [+$extra more]"
           case (true,  false) => s" [+$extra more stages]"
           case (false, true)  => s" [+$extra more queries]"
           case _              => s" [+$extra more]"
         }
+        val totalSavedMs    = multi.flatMap(_.estimatedImpact.flatMap(_.savedTimeMs)).sum
+        val totalSavedBytes = multi.flatMap(_.estimatedImpact.flatMap(_.savedBytes)).sum
+        val mergedImpact: Option[model.EstimatedImpact] = rep.estimatedImpact match {
+          case Some(imp) =>
+            Some(imp.copy(
+              savedTimeMs = if (totalSavedMs > 0) Some(totalSavedMs) else None,
+              savedBytes  = if (totalSavedBytes > 0) Some(totalSavedBytes) else None,
+            ))
+          case None if totalSavedMs > 0 || totalSavedBytes > 0 =>
+            Some(model.EstimatedImpact(
+              summary     = s"${multi.size} stages affected",
+              savedTimeMs = if (totalSavedMs > 0) Some(totalSavedMs) else None,
+              savedBytes  = if (totalSavedBytes > 0) Some(totalSavedBytes) else None,
+              confidence  = "medium",
+            ))
+          case None => None
+        }
         Seq(rep.copy(
-          id             = trailingId.replaceFirstIn(rep.id, ""),
-          title          = rep.title + suffix,
-          affectedStages = allStages,
-          affectedJobs   = allJobs,
+          id              = trailingId.replaceFirstIn(rep.id, ""),
+          title           = rep.title + suffix,
+          affectedStages  = allStages,
+          affectedJobs    = allJobs,
+          estimatedImpact = mergedImpact,
         ))
     }
 }

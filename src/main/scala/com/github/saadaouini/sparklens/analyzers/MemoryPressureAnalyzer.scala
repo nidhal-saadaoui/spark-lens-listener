@@ -34,8 +34,8 @@ object MemoryPressureAnalyzer extends Analyzer {
 
         if (hasGc && hasSpill) {
           val gcPct       = s"${fmtDouble(gcFraction * 100, 0)}%"
-          val spillMs     = diskMs(spill, diskSpeedMbps)
           val gcWallMs    = (stage.durationMs * gcFraction).toLong
+          val spillMs     = math.min(diskMs(spill, diskSpeedMbps), math.max(0L, stage.durationMs - gcWallMs))
           val totalCostMs = gcWallMs + spillMs
           val avgPeak     = stage.avgPeakExecutionMemory
           val neededGb    = if (avgPeak > 0) math.ceil(avgPeak * 2.0 / GB).toLong

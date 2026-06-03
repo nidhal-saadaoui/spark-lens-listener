@@ -72,10 +72,9 @@ object StageFailureAnalyzer extends Analyzer {
             .headOption
             .map(_.take(150))
             .getOrElse("no error message recorded")
-          val avgTaskMs = if (totalTasks > 0) stage.totalExecutorRunTimeMs / totalTasks else 0L
-          val rerunMs   = failed * avgTaskMs
-          val impact    = EstimatedImpact(
-            summary     = s"$failed failed task(s) × ~${fmtMs(avgTaskMs)} avg = ~${fmtMs(rerunMs)} wasted re-computation",
+          val rerunMs = (stage.durationMs * failed.toDouble / totalTasks).toLong
+          val impact  = EstimatedImpact(
+            summary     = s"$failed of $totalTasks tasks failed — ~${fmtMs(rerunMs)} wall-clock overhead",
             savedTimeMs = timeOpt(rerunMs),
             savedBytes  = None,
             confidence  = "medium",

@@ -18,7 +18,7 @@ object ShuffleLocalityAnalyzer extends Analyzer {
         val remoteRatio = remote.toDouble / total
         if (remoteRatio < remoteRatioWarn) Nil
         else {
-          val penaltyMs = networkMs(remote, networkSpeedMbps)
+          val penaltyMs = math.min(networkMs(remote, networkSpeedMbps), stage.durationMs)
           val impact    = EstimatedImpact(
             summary     = s"~${fmtBytes(remote)} fetched remotely, ~${fmtMs(penaltyMs)} network penalty (est. $networkSpeedMbps MB/s)",
             savedTimeMs = timeOpt(penaltyMs),

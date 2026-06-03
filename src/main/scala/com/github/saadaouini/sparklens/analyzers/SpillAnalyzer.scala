@@ -28,7 +28,7 @@ object SpillAnalyzer extends Analyzer {
       if (disk < warnDiskBytes && memory == 0) Nil
       else {
         val severity   = if (disk >= critDiskBytes) Critical else Warning
-        val penaltyMs  = diskMs(disk, diskSpeedMbps)
+        val penaltyMs  = math.min(diskMs(disk, diskSpeedMbps), stage.durationMs)
 
         // Precise recommendation: compare avg task peak memory to executor memory.
         val avgPeak   = stage.avgPeakExecutionMemory

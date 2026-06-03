@@ -18,10 +18,11 @@ object TextReporter extends Reporter {
       else s"${ms}ms"
 
     def pctOfApp(savedMs: Long): String =
-      app.durationMs.filter(_ > 0).map { total =>
+      app.durationMs.filter(_ > 0).flatMap { total =>
         val pct = savedMs.toDouble / total * 100
-        if (pct >= 10) f"  ($pct%.0f%% of app time)"
-        else           f"  ($pct%.1f%% of app time)"
+        if      (pct > 100) None
+        else if (pct >= 10) Some(f"  ($pct%.0f%% of app time)")
+        else                Some(f"  ($pct%.1f%% of app time)")
       }.getOrElse("")
 
     // ── Header ───────────────────────────────────────────────────────────────
@@ -154,14 +155,28 @@ object TextReporter extends Reporter {
     }
 
     // ── Quick wins ────────────────────────────────────────────────────────────
-    // Group issues by their primary config fix (first non-comment line).
-    // Show each distinct fix once, listing which issues it resolves.
+    // Group issues by their Spark property name (the key before '=') so that two
+    // analyzers recommending different values for the same property (e.g. different
+    // spark.executor.memory values) collapse into one entry showing the max value.
+    def fixFirstLine(fix: String): String = fix.linesIterator.next().split('#').head.trim
+    def propKey(line: String): String = { val i = line.indexOf('='); if (i > 0) line.substring(0, i).trim else line }
+    def propVal(line: String): Long   = scala.util.Try {
+      val v = line.drop(line.indexOf('=') + 1).trim.toLowerCase
+      if      (v.endsWith("g")) (v.dropRight(1).toDouble * 1073741824L).toLong
+      else if (v.endsWith("m")) (v.dropRight(1).toDouble * 1048576L).toLong
+      else if (v.endsWith("k")) (v.dropRight(1).toDouble * 1024L).toLong
+      else                       v.toLong
+    }.getOrElse(0L)
+
     val fixGroups: Seq[(String, Seq[Issue])] = displayIssues
       .filter(_.configFix.isDefined)
-      .groupBy(i => i.configFix.get.linesIterator.next().split('#').head.trim)
+      .groupBy(i => propKey(fixFirstLine(i.configFix.get)))
+      .map { case (_, issues) =>
+        val bestLine = issues.map(i => fixFirstLine(i.configFix.get)).maxBy(propVal)
+        (bestLine, issues)
+      }
       .toSeq
       .sortBy { case (_, grp) =>
-        // Sort groups: most issues resolved first, then by severity
         (-grp.size, grp.map(_.severity.order).min)
       }
 

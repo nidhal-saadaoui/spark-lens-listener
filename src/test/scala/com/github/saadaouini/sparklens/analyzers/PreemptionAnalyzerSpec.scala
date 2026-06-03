@@ -14,37 +14,37 @@ class PreemptionAnalyzerSpec extends AnyFlatSpec with Matchers {
   it should "flag an executor removed with 'preempt' in the reason" in {
     val exc = executor("1", removedTimeMs = Some(500L), removalReason = Some("preempted by YARN"))
     val issues = PreemptionAnalyzer.analyze(app(executors = Map("1" -> exc)))
-    issues.exists(_.id == "preemption-executor-lost") shouldBe true
+    issues.exists(_.id == "preemption-executor-lost-0") shouldBe true
   }
 
   it should "flag an executor removed with 'kill' in the reason" in {
     val exc = executor("2", removedTimeMs = Some(500L), removalReason = Some("Container killed by NodeManager"))
     val issues = PreemptionAnalyzer.analyze(app(executors = Map("2" -> exc)))
-    issues.exists(_.id == "preemption-executor-lost") shouldBe true
+    issues.exists(_.id == "preemption-executor-lost-0") shouldBe true
   }
 
   it should "flag an executor removed with 'lost' in the reason" in {
     val exc = executor("3", removedTimeMs = Some(500L), removalReason = Some("executor lost"))
     val issues = PreemptionAnalyzer.analyze(app(executors = Map("3" -> exc)))
-    issues.exists(_.id == "preemption-executor-lost") shouldBe true
+    issues.exists(_.id == "preemption-executor-lost-0") shouldBe true
   }
 
   it should "not flag an executor that finished cleanly" in {
     val exc = executor("4", removedTimeMs = Some(1000L), removalReason = Some("finished successfully"))
     val issues = PreemptionAnalyzer.analyze(app(executors = Map("4" -> exc)))
-    issues.exists(_.id == "preemption-executor-lost") shouldBe false
+    issues.exists(_.id == "preemption-executor-lost-0") shouldBe false
   }
 
   it should "not flag an executor still running (no removed time)" in {
     val exc = executor("5", removedTimeMs = None, removalReason = Some("preempted"))
     val issues = PreemptionAnalyzer.analyze(app(executors = Map("5" -> exc)))
-    issues.exists(_.id == "preemption-executor-lost") shouldBe false
+    issues.exists(_.id == "preemption-executor-lost-0") shouldBe false
   }
 
   it should "give blacklisting advice when executor is killed by driver" in {
     val exc = executor("6", removedTimeMs = Some(500L), removalReason = Some("Executor killed by driver because it has been blacklisted"))
     val issues = PreemptionAnalyzer.analyze(app(executors = Map("6" -> exc)))
-    val issue = issues.find(_.id == "preemption-executor-lost").get
+    val issue = issues.find(_.id == "preemption-executor-lost-0").get
     issue.recommendation should include("blacklist")
     issue.configFix.get  should include("blacklist")
   }
@@ -52,7 +52,7 @@ class PreemptionAnalyzerSpec extends AnyFlatSpec with Matchers {
   it should "give network advice when executor is lost via heartbeat timeout" in {
     val exc = executor("7", removedTimeMs = Some(500L), removalReason = Some("heartbeat timeout"))
     val issues = PreemptionAnalyzer.analyze(app(executors = Map("7" -> exc)))
-    val issue = issues.find(_.id == "preemption-executor-lost").get
+    val issue = issues.find(_.id == "preemption-executor-lost-0").get
     issue.configFix.get should include("spark.network.timeout")
   }
 
@@ -62,7 +62,7 @@ class PreemptionAnalyzerSpec extends AnyFlatSpec with Matchers {
       "2" -> executor("2", removedTimeMs = Some(200L), removalReason = Some("lost")),
     )
     val issues = PreemptionAnalyzer.analyze(app(executors = excs))
-    val lost = issues.find(_.id == "preemption-executor-lost").get
+    val lost = issues.find(_.id == "preemption-executor-lost-0").get
     lost.metrics("lost_executors") shouldBe "2"
   }
 

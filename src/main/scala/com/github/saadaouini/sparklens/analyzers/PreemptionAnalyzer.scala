@@ -62,7 +62,7 @@ object PreemptionAnalyzer extends Analyzer {
         confidence  = "low",
       )
       issues += Issue(
-        id              = "preemption-executor-lost",
+        id              = "preemption-executor-lost-0",
         severity        = Warning,
         category        = "preemption",
         title           = s"${removedMidJob.size} Executor(s) Lost / Preempted",
@@ -80,10 +80,9 @@ object PreemptionAnalyzer extends Analyzer {
         val killed     = if (stage.hasExactAggregates) stage.exactKilledCount else stage.tasks.count(_.killed)
         val killedRate = killed.toDouble / totalTasks
         if (killedRate >= killedTaskRateWarn) {
-          val avgTaskMs = if (totalTasks > 0) stage.totalExecutorRunTimeMs / totalTasks else 0L
-          val rerunMs   = killed * avgTaskMs
-          val impact    = EstimatedImpact(
-            summary     = s"$killed killed task(s) × ~${fmtMs(avgTaskMs)} avg = ~${fmtMs(rerunMs)} re-computation cost",
+          val rerunMs = (stage.durationMs * killed.toDouble / totalTasks).toLong
+          val impact  = EstimatedImpact(
+            summary     = s"$killed of $totalTasks tasks killed — ~${fmtMs(rerunMs)} wall-clock overhead",
             savedTimeMs = timeOpt(rerunMs),
             savedBytes  = None,
             confidence  = "medium",
