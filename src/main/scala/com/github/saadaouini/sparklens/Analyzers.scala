@@ -31,6 +31,7 @@ object Analyzers {
     PartitionImbalanceAnalyzer,
     SchedulerDelayAnalyzer,
     CriticalPathAnalyzer,
+    DynamicAllocationAnalyzer,
   )
 
   def runAll(app: SparkAppModel): Seq[Issue] =
