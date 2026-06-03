@@ -107,8 +107,10 @@ object LogReporter extends Reporter {
   }
 
   /** Quote a string with double-quotes, escaping inner quotes. */
-  private def q(s: String): String =
-    '"' + s.replace("\\", "\\\\").replace("\"", "'").replace("\n", " ") + '"'
+  private def q(s: String): String = {
+    val escaped = s.replace("\\", "\\\\").replace("\"", "'").replace("\n", " ")
+    s""""$escaped""""
+  }
 
   /** Quote only if the value contains spaces; otherwise pass through. */
   private def qIfNeeded(s: String): String =
