@@ -11,11 +11,25 @@ object TextReporter extends Reporter {
     val score = healthScore(issues)
     val sb    = new StringBuilder
 
+    def msLabel(ms: Long): String =
+      if (ms >= 3600000) f"${ms / 3600000.0}%.1fh"
+      else if (ms >= 60000) f"${ms / 60000.0}%.1fmin"
+      else if (ms >= 1000) f"${ms / 1000.0}%.1fs"
+      else s"${ms}ms"
+
+    def pctOfApp(savedMs: Long): String =
+      app.durationMs.filter(_ > 0).map { total =>
+        val pct = savedMs.toDouble / total * 100
+        if (pct >= 10) f"  ($pct%.0f%% of app time)"
+        else           f"  ($pct%.1f%% of app time)"
+      }.getOrElse("")
+
     // ── Header ───────────────────────────────────────────────────────────────
     sb.append("\n")
     sb.append("=" * 70).append("\n")
     sb.append(s"  spark-lens  |  ${app.appName}  (${app.appId})\n")
-    sb.append(s"  Spark ${app.sparkVersion.padTo(6, ' ')}  |  Health: $score/100")
+    val durationPart = app.durationMs.map(ms => s"  |  Duration: ${msLabel(ms)}").getOrElse("")
+    sb.append(s"  Spark ${app.sparkVersion.padTo(6, ' ')}$durationPart  |  Health: $score/100")
     if (issues.nonEmpty) {
       val c = issues.count(_.severity == Critical)
       val w = issues.count(_.severity == Warning)
@@ -36,11 +50,6 @@ object TextReporter extends Reporter {
       return sb.toString()
     }
 
-    def msLabel(ms: Long): String =
-      if (ms >= 60000) f"${ms / 60000.0}%.1fmin"
-      else if (ms >= 1000) f"${ms / 1000.0}%.1fs"
-      else s"${ms}ms"
-
     // ── Priority Issues — top 3 by estimated savings ──────────────────────────
     // Sort by absolute savings so the most impactful fix leads, regardless of severity.
     val ranked = issues
@@ -51,7 +60,7 @@ object TextReporter extends Reporter {
       sb.append("\n  Priority fixes (estimated savings per run):\n")
       ranked.zipWithIndex.foreach { case (issue, idx) =>
         val saving = issue.estimatedImpact.flatMap(_.savedTimeMs)
-          .map(ms => s"  ~${msLabel(ms)}").getOrElse("")
+          .map(ms => s"  ~${msLabel(ms)}${pctOfApp(ms)}").getOrElse("")
         sb.append(s"  ${idx + 1}. [${issue.severity.label}] ${issue.title.take(65)}$saving\n")
       }
       sb.append("\n")
