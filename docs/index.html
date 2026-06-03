@@ -156,7 +156,7 @@
     <h1>Zero-config Spark<br><span>performance analyzer</span></h1>
     <p>Attach via <code style="background:rgba(255,255,255,.1);padding:2px 7px;border-radius:4px;font-size:16px">spark.extraListeners</code> — get actionable recommendations in your logs at job end. No Python, no extra services, no code changes.</p>
     <div class="hero-cmd"><span class="prompt">$</span> <span class="hl">spark-submit</span> \
-  <span class="flag">--packages</span> <span class="val">com.github.saadaouini:spark-lens_2.12:0.2.0</span> \
+  <span class="flag">--packages</span> <span class="val">io.github.nidhal-saadaoui:spark-lens_2.12:1.2.0</span> \
   <span class="flag">--conf</span> <span class="key">spark.extraListeners</span>=<span class="cls">com.github.saadaouini.sparklens.SparkLensListener</span> \
   <span class="flag">--conf</span> <span class="key">spark.sparklens.output</span>=<span class="val">text</span> \
   <span class="hl">myJob.jar</span></div>
@@ -430,7 +430,7 @@
         <h3 style="font-size:15px;font-weight:700;margin-bottom:10px">Fail on critical</h3>
         <div class="code-block" style="font-size:12px"><span class="cb-comment"># CI fails automatically — exit code non-zero</span>
 spark-submit \
-  <span class="cb-flag">--packages</span> <span class="cb-val">com.github.saadaouini:spark-lens_2.12:0.2.0</span> \
+  <span class="cb-flag">--packages</span> <span class="cb-val">io.github.nidhal-saadaoui:spark-lens_2.12:1.2.0</span> \
   <span class="cb-flag">--conf</span> <span class="cb-val">spark.extraListeners=...SparkLensListener</span> \
   <span class="cb-flag">--conf</span> <span class="cb-val">spark.sparklens.fail.on=critical</span> \
   myJob.jar</div>

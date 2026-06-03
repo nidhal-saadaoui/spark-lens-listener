@@ -11,7 +11,7 @@ Zero-config Spark performance analyzer. Attach via `spark.extraListeners` — ge
 
 ```bash
 spark-submit \
-  --packages io.github.nidhal-saadaoui:spark-lens_2.12:1.0.1 \
+  --packages io.github.nidhal-saadaoui:spark-lens_2.12:1.2.0 \
   --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
   --conf spark.sparklens.output=text \
   myJob.jar
@@ -134,7 +134,7 @@ Fail the Spark application itself if critical issues are found:
 
 ```bash
 spark-submit \
-  --packages io.github.nidhal-saadaoui:spark-lens_2.12:1.0.1 \
+  --packages io.github.nidhal-saadaoui:spark-lens_2.12:1.2.0 \
   --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
   --conf spark.sparklens.fail.on=critical \
   myJob.jar
