@@ -1,5 +1,10 @@
 # spark-lens-listener
 
+[![CI](https://github.com/nidhal-saadaoui/spark-lens-listener/actions/workflows/ci.yml/badge.svg)](https://github.com/nidhal-saadaoui/spark-lens-listener/actions/workflows/ci.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.nidhal-saadaoui/spark-lens_2.12)](https://central.sonatype.com/artifact/io.github.nidhal-saadaoui/spark-lens_2.12)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-orange)](https://nidhal-saadaoui.github.io/spark-lens-listener/)
+
 Zero-config Spark performance analyzer. Attach via `spark.extraListeners` — get actionable recommendations in your logs at the end of every job. No Python, no extra services, no code changes.
 
 ## Usage
