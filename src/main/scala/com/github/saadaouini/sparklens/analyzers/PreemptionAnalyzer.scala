@@ -6,16 +6,55 @@ import ImpactEstimator._
 object PreemptionAnalyzer extends Analyzer {
   private val MinTasks = 10
 
+  private def adviceForReason(reason: String): (String, Option[String]) = {
+    val r = reason.toLowerCase
+    if (r.contains("killed by driver") || r.contains("blacklist") || r.contains("decommission"))
+      (
+        "The Spark driver removed this executor — typically caused by too many task failures " +
+        "(executor blacklisting) or a dynamic allocation scale-down. Check the driver logs for " +
+        "the root cause. If blacklisting, investigate the failing tasks or raise " +
+        "spark.blacklist.task.maxTaskAttemptsPerExecutor. If dynamic allocation, this is expected.",
+        Some("spark.blacklist.enabled=false\n# or investigate task failure root cause"),
+      )
+    else if (r.contains("lost") || r.contains("heartbeat") || r.contains("timeout"))
+      (
+        "Executor lost contact with the driver — usually a network partition or a GC pause " +
+        "exceeding the heartbeat timeout. Increase spark.network.timeout and " +
+        "spark.executor.heartbeatInterval, or investigate GC pressure on the executor.",
+        Some("spark.network.timeout=300s\nspark.executor.heartbeatInterval=60s"),
+      )
+    else if (r.contains("container") || r.contains("overhead") || r.contains("memory limit"))
+      (
+        "YARN killed the container for exceeding physical memory limits. Increase " +
+        "spark.yarn.executor.memoryOverhead or spark.yarn.executor.memoryOverheadFactor, " +
+        "or reduce spark.executor.cores to lower concurrent memory demand.",
+        Some("spark.yarn.executor.memoryOverheadFactor=0.2"),
+      )
+    else
+      (
+        "On YARN: increase spark.yarn.executor.memoryOverhead or reduce executor memory to avoid " +
+        "container kill by the Node Manager. On k8s: set resource limits. " +
+        "On spot/preemptible instances: enable dynamic allocation.",
+        Some("spark.yarn.executor.memoryOverheadFactor=0.2"),
+      )
+  }
+
   def analyze(app: SparkAppModel): Seq[Issue] = {
     val killedTaskRateWarn = propDouble(app, "spark.sparklens.preemption.killedTaskRateWarn", 0.05)
     val issues = scala.collection.mutable.ArrayBuffer[Issue]()
 
     val removedMidJob = app.executors.values.filter { exc =>
       exc.removedTimeMs.isDefined &&
-      exc.removalReason.exists(r => r.toLowerCase.contains("lost") || r.toLowerCase.contains("preempt") || r.toLowerCase.contains("kill"))
+      exc.removalReason.exists { r =>
+        val rl = r.toLowerCase
+        rl.contains("lost") || rl.contains("preempt") || rl.contains("kill") ||
+        rl.contains("timeout") || rl.contains("heartbeat")
+      }
     }
     if (removedMidJob.nonEmpty) {
       val hosts  = removedMidJob.map(_.host).toSeq.distinct.take(3).mkString(", ")
+      val reason = removedMidJob.head.removalReason.getOrElse("unknown")
+      val (advice, fix) = adviceForReason(reason)
       val impact = EstimatedImpact(
         summary     = s"${removedMidJob.size} executor(s) preempted — tasks rescheduled, cost depends on stage progress at preemption",
         savedTimeMs = None,
@@ -27,9 +66,9 @@ object PreemptionAnalyzer extends Analyzer {
         severity        = Warning,
         category        = "preemption",
         title           = s"${removedMidJob.size} Executor(s) Lost / Preempted",
-        description     = s"Executors on $hosts were removed during the application (reason: ${removedMidJob.head.removalReason.getOrElse("unknown")}). Tasks had to be rescheduled.",
-        recommendation  = "On YARN: increase spark.yarn.executor.memoryOverhead or reduce executor memory to avoid container kill by the Node Manager. On k8s: set resource limits. On spot/preemptible instances: enable dynamic allocation.",
-        configFix       = Some("spark.yarn.executor.memoryOverheadFactor=0.2"),
+        description     = s"Executors on $hosts were removed during the application (reason: $reason). Tasks had to be rescheduled.",
+        recommendation  = advice,
+        configFix       = fix,
         metrics         = Map("lost_executors" -> removedMidJob.size.toString),
         estimatedImpact = Some(impact),
       )

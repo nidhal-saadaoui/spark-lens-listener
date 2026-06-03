@@ -81,7 +81,7 @@ class CpuEfficiencyAnalyzerSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "attach estimatedImpact with savedTimeMs representing idle time" in {
-    // cpuFraction = (2000ms / 1000000 → 2000ms ns→ms / 20000ms) = 10% CPU → idle = 90% of 20000 = 18000ms
+    // cpuFraction = 10% → idleMs = 90% of stage wall-clock durationMs (60s default) = 54000ms
     val tasks = (0 until 6).map(i =>
       task(id = i, executorRunTimeMs = 20000L, cpuNs = 2000L * 1000000L))
     val issues = CpuEfficiencyAnalyzer.analyze(app(stages = Map(0 -> stage(tasks = tasks))))

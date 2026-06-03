@@ -41,6 +41,21 @@ class PreemptionAnalyzerSpec extends AnyFlatSpec with Matchers {
     issues.exists(_.id == "preemption-executor-lost") shouldBe false
   }
 
+  it should "give blacklisting advice when executor is killed by driver" in {
+    val exc = executor("6", removedTimeMs = Some(500L), removalReason = Some("Executor killed by driver because it has been blacklisted"))
+    val issues = PreemptionAnalyzer.analyze(app(executors = Map("6" -> exc)))
+    val issue = issues.find(_.id == "preemption-executor-lost").get
+    issue.recommendation should include("blacklist")
+    issue.configFix.get  should include("blacklist")
+  }
+
+  it should "give network advice when executor is lost via heartbeat timeout" in {
+    val exc = executor("7", removedTimeMs = Some(500L), removalReason = Some("heartbeat timeout"))
+    val issues = PreemptionAnalyzer.analyze(app(executors = Map("7" -> exc)))
+    val issue = issues.find(_.id == "preemption-executor-lost").get
+    issue.configFix.get should include("spark.network.timeout")
+  }
+
   it should "report lost executor count in metrics" in {
     val excs = Map(
       "1" -> executor("1", removedTimeMs = Some(100L), removalReason = Some("lost")),

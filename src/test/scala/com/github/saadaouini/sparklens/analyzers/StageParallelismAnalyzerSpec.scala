@@ -117,6 +117,17 @@ class StageParallelismAnalyzerSpec extends AnyFlatSpec with Matchers {
     StageParallelismAnalyzer.analyze(a).filter(_.id.startsWith("single-task")) shouldBe empty
   }
 
+  it should "not produce a low-parallelism issue for a single-task stage already caught by single-task check" in {
+    val s = stage(stageId = 0, tasks = Seq(task(durationMs = 30000L)),
+                  submitMs = Some(0L), completeMs = Some(30000L))
+              .copy(numTasks = 1)
+    val exc = executor(id = "0", host = "h1").copy(totalCores = 100)
+    val a = app(stages = Map(0 -> s), executors = Map("0" -> exc))
+    val issues = StageParallelismAnalyzer.analyze(a)
+    issues.exists(_.id.startsWith("single-task"))    shouldBe true
+    issues.exists(_.id.startsWith("low-parallelism")) shouldBe false
+  }
+
   it should "not produce a single-task issue for a multi-task stage" in {
     val tasks = (0 until 4).map(i => task(id = i, durationMs = 10000L))
     val s = stage(stageId = 0, tasks = tasks, submitMs = Some(0L), completeMs = Some(10000L))

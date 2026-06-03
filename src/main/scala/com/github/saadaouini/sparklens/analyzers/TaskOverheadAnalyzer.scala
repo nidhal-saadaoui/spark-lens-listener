@@ -22,7 +22,7 @@ object TaskOverheadAnalyzer extends Analyzer {
           val pct          = fmtDouble(ratio * 100, 0)
           val avgDeserMs   = deserTime / taskCount
           val avgRunMs     = runTime / taskCount
-          val wastedMs     = deserTime  // overhead that would disappear with fewer, larger tasks
+          val wastedMs     = (stage.durationMs * ratio).toLong
           Seq(Issue(
             id              = s"task-overhead-${stage.stageId}",
             severity        = Warning,
@@ -49,7 +49,7 @@ object TaskOverheadAnalyzer extends Analyzer {
               "task_count"        -> taskCount.toString,
             ),
             estimatedImpact = Some(EstimatedImpact(
-              summary     = s"${fmtMs(wastedMs)} of task deserialization overhead across $taskCount tasks",
+              summary     = s"~${fmtMs(wastedMs)} wall-clock overhead from $pct% task deserialization in stage ${stage.stageId}",
               savedTimeMs = timeOpt(wastedMs),
               savedBytes  = None,
               confidence  = "medium",

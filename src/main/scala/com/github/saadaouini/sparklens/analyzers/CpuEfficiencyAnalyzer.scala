@@ -17,10 +17,11 @@ object CpuEfficiencyAnalyzer extends Analyzer {
         val cpuFraction = (cpuTimeNs / 1000000.0) / runTimeMs
         if (cpuFraction >= lowCpuFraction) Nil
         else {
-          val pct     = s"${fmtDouble(cpuFraction * 100, 0)}%"
-          val idleMs  = (runTimeMs * (1.0 - cpuFraction)).toLong
+          val pct        = s"${fmtDouble(cpuFraction * 100, 0)}%"
+          val wallClockMs = stage.durationMs
+          val idleMs      = (wallClockMs * (1.0 - cpuFraction)).toLong
           val impact  = EstimatedImpact(
-            summary     = s"~${fmtMs(idleMs)} executor idle time ($pct CPU utilisation in stage ${stage.stageId})",
+            summary     = s"~${fmtMs(idleMs)} wall-clock idle time ($pct CPU utilisation in stage ${stage.stageId})",
             savedTimeMs = timeOpt(idleMs),
             savedBytes  = None,
             confidence  = "medium",

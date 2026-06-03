@@ -172,7 +172,7 @@ object StageParallelismAnalyzer extends Analyzer {
       val threshold = math.max(1, (totalCores * utilRatio).toInt)
       app.stages.values.toSeq.flatMap { stage =>
         val dur = stage.durationMs
-        if (dur < minStageSec * 1000L || stage.numTasks >= threshold) Nil
+        if (dur < minStageSec * 1000L || stage.numTasks >= threshold || stage.numTasks == 1) Nil
         else {
           val utilPct   = fmtDouble(stage.numTasks.toDouble / totalCores * 100, 0)
           val idleCores = totalCores - stage.numTasks

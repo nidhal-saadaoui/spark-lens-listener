@@ -50,7 +50,7 @@ object CacheAnalyzer extends Analyzer {
           stageId <- job.stageIds
           stage   <- app.stages.get(stageId).toSeq
           if stage.rddNames.contains(rddName)
-        } yield stage.totalExecutorRunTimeMs).sum
+        } yield stage.durationMs).sum
         val redundantMs = if (jobs.size > 1) stageRunMs * (jobs.size - 1) / jobs.size else 0L
         // Use rddCacheInfos (from onStageSubmitted) to provide size-aware advice.
         val rddInfo = sortedJobs

@@ -31,21 +31,31 @@ object SpillAnalyzer extends Analyzer {
         val penaltyMs  = diskMs(disk, diskSpeedMbps)
 
         // Precise recommendation: compare avg task peak memory to executor memory.
-        val avgPeak     = stage.avgPeakExecutionMemory
-        val taskCount   = if (stage.hasExactAggregates) stage.exactTaskCount else stage.tasks.size
-        val memAdvice = executorMemory match {
+        val avgPeak   = stage.avgPeakExecutionMemory
+        val taskCount = if (stage.hasExactAggregates) stage.exactTaskCount else stage.tasks.size
+        val (memAdvice, memConfigFix) = executorMemory match {
           case Some(execMem) if avgPeak > 0 =>
-            val needed = avgPeak * 2          // 2× for safety margin
+            val needed   = avgPeak * 2
+            val neededGb = math.ceil(needed.toDouble / GB).toLong
             if (avgPeak > execMem * 0.8)
-              s"Tasks averaged ${fmtBytes(avgPeak)} peak memory against ${fmtBytes(execMem)} executor heap — " +
-              s"set spark.executor.memory=${fmtBytes(needed)} or raise " +
-              s"spark.sql.shuffle.partitions to split data across more tasks."
+              (
+                s"Tasks averaged ${fmtBytes(avgPeak)} peak memory against ${fmtBytes(execMem)} executor heap — " +
+                s"set spark.executor.memory=${neededGb}g or raise " +
+                s"spark.sql.shuffle.partitions to split data across more tasks.",
+                Some(s"spark.sql.adaptive.enabled=true\n# or: spark.executor.memory=${neededGb}g"),
+              )
             else
-              s"Executor has ${fmtBytes(execMem)} but tasks averaged ${fmtBytes(avgPeak)} peak — " +
-              s"raise spark.sql.shuffle.partitions to reduce per-task data volume."
+              (
+                s"Executor has ${fmtBytes(execMem)} but tasks averaged ${fmtBytes(avgPeak)} peak — " +
+                s"raise spark.sql.shuffle.partitions to reduce per-task data volume.",
+                Some("spark.sql.adaptive.enabled=true"),
+              )
           case _ =>
-            "Enable AQE so Spark picks the right partition count, or increase spark.executor.memory. " +
-            "As a last resort, increase the number of partitions manually to shrink each task's working set."
+            (
+              "Enable AQE so Spark picks the right partition count, or increase spark.executor.memory. " +
+              "As a last resort, increase the number of partitions manually to shrink each task's working set.",
+              Some("spark.sql.adaptive.enabled=true"),
+            )
         }
 
         val impact = EstimatedImpact(
@@ -61,7 +71,7 @@ object SpillAnalyzer extends Analyzer {
           title           = s"Disk Spill in Stage ${stage.stageId} (${stage.name})",
           description     = s"Stage spilled ${fmtBytes(disk)} to disk and ${fmtBytes(memory)} to memory across $taskCount tasks. Disk I/O is 10–100× slower than RAM.${if (stage.callSite.nonEmpty) s" Triggered from: ${stage.callSite}." else ""}",
           recommendation  = memAdvice,
-          configFix       = Some("spark.sql.adaptive.enabled=true\n# or: spark.executor.memory=4g"),
+          configFix       = memConfigFix,
           affectedStages  = Seq(stage.stageId),
           metrics         = Map(
             "disk_bytes"       -> disk.toString,

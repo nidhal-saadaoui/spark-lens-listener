@@ -51,7 +51,9 @@ class GcAnalyzerSpec extends AnyFlatSpec with Matchers {
     GcAnalyzer.analyze(a) shouldBe empty
   }
 
-  it should "attach estimatedImpact with savedTimeMs equal to gc time" in {
+  it should "attach estimatedImpact with savedTimeMs based on wall-clock gc fraction" in {
+    // fraction = 3000 / 20000 = 0.15; stage durationMs = 60000 (fixture default)
+    // savedMs = (60000 * 0.15).toLong = 9000
     val gcMs    = 3000L
     val runMs   = 20000L
     val s = stage(stageId = 0).copy(
@@ -63,7 +65,7 @@ class GcAnalyzerSpec extends AnyFlatSpec with Matchers {
     issues should not be empty
     val imp = issues.head.estimatedImpact
     imp shouldBe defined
-    imp.get.savedTimeMs shouldBe Some(gcMs)
+    imp.get.savedTimeMs shouldBe Some(9000L)
     imp.get.confidence shouldBe "high"
   }
 }

@@ -17,11 +17,12 @@ object GcAnalyzer extends Analyzer {
         val fraction = gcTime.toDouble / runTime
         if (fraction < warnFraction) Nil
         else {
-          val pct      = s"${fmtDouble(fraction * 100, 0)}%"
-          val severity = if (fraction >= critFraction) Critical else Warning
-          val impact   = EstimatedImpact(
-            summary     = s"~${fmtMs(gcTime)} spent in GC ($pct of executor time in stage ${stage.stageId})",
-            savedTimeMs = timeOpt(gcTime),
+          val pct        = s"${fmtDouble(fraction * 100, 0)}%"
+          val severity   = if (fraction >= critFraction) Critical else Warning
+          val savedMs    = (stage.durationMs * fraction).toLong
+          val impact     = EstimatedImpact(
+            summary     = s"~${fmtMs(savedMs)} wall-clock impact from $pct GC overhead in stage ${stage.stageId}",
+            savedTimeMs = timeOpt(savedMs),
             savedBytes  = None,
             confidence  = "high",
           )

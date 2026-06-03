@@ -75,14 +75,16 @@ class TaskOverheadAnalyzerSpec extends AnyFlatSpec with Matchers {
     m("deserialize_ratio").toDouble shouldBe (0.4 +- 0.01)
   }
 
-  it should "include estimatedImpact with the deserialize time as savedTimeMs" in {
+  it should "include estimatedImpact with savedTimeMs based on wall-clock deserialize fraction" in {
+    // ratio = (100 × 400ms) / (100 × 1000ms) = 0.4; durationMs = 30000ms
+    // savedMs = (30000 * 0.4).toLong = 12000
     val tasks = (0 until 100).map(i =>
       task(id = i, executorRunTimeMs = 1000L, executorDeserializeTimeMs = 400L))
     val s = stage(stageId = 0, tasks = tasks, submitMs = Some(0L), completeMs = Some(30000L))
     val issues = TaskOverheadAnalyzer.analyze(app(stages = Map(0 -> s)))
     val imp = issues.filter(_.id.startsWith("task-overhead")).head.estimatedImpact
     imp shouldBe defined
-    imp.get.savedTimeMs shouldBe Some(100 * 400L)  // 100 tasks × 400ms
+    imp.get.savedTimeMs shouldBe Some(12000L)
     imp.get.confidence shouldBe "medium"
   }
 }
