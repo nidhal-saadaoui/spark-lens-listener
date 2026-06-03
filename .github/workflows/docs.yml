@@ -4,13 +4,19 @@ on:
   push:
     branches: ["main"]
   workflow_dispatch:
+  workflow_call:  # allows release.yml to trigger this after a tag publish
+
+# Cancel any in-progress docs run for the same branch
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
-  scaladoc:
-    name: Scaladoc → GitHub Pages
+  publish:
+    name: Scaladoc + Landing Page → GitHub Pages
     runs-on: ubuntu-latest
 
     steps:
@@ -35,14 +41,24 @@ jobs:
             --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
         run: sbt "++2.13.15 doc"
 
+      # Combine landing page (docs/) and Scaladoc (target/scala-2.13/api/)
+      # into one _site/ directory so both are served from the same gh-pages branch:
+      #   https://nidhal-saadaoui.github.io/spark-lens-listener/        ← landing page
+      #   https://nidhal-saadaoui.github.io/spark-lens-listener/api/    ← Scaladoc
+      - name: Stage site
+        run: |
+          mkdir -p _site/api
+          cp -r docs/* _site/
+          cp -r target/scala-2.13/api/* _site/api/
+
       - name: Publish to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: target/scala-2.13/api
+          publish_dir: _site
           publish_branch: gh-pages
           force_orphan: true
           enable_jekyll: false
           user_name: "github-actions[bot]"
           user_email: "github-actions[bot]@users.noreply.github.com"
-          commit_message: "docs: regenerate Scaladoc"
+          commit_message: "docs: publish landing page + Scaladoc"

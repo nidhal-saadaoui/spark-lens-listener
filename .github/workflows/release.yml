@@ -5,6 +5,10 @@ on:
     tags:
       - 'v[0-9]*'
 
+# One release at a time — tags are sequential so no cancel-in-progress needed
+concurrency:
+  group: release
+
 jobs:
   # ── Run tests in parallel for both Scala versions ─────────────────────────
   test:
@@ -99,3 +103,9 @@ jobs:
             --generate-notes \
             target/scala-2.13/spark-lens_2.13-*-assembly.jar \
             target/scala-2.12/spark-lens_2.12-*-assembly.jar
+
+  # ── Regenerate Scaladoc and landing page for the new version ──────────────
+  docs:
+    name: Publish Docs
+    needs: publish
+    uses: ./.github/workflows/docs.yml

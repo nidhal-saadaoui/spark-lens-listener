@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: ["main"]
 
+# Cancel outdated runs on the same PR or branch — keeps the queue clean
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ── Unit tests — both Scala versions × both Java versions ─────────────────
   test:
@@ -141,6 +146,7 @@ jobs:
       - name: Verify report content
         run: |
           cat /tmp/spark-lens-report.txt
+          # ── Original 8 scenarios (jobs 1–8) ───────────────────────────────
           grep -q "Health:"                              /tmp/spark-lens-report.txt
           grep -q "Repeated Scan"                        /tmp/spark-lens-report.txt
           grep -q "Excessive Shuffles"                   /tmp/spark-lens-report.txt
@@ -152,7 +158,11 @@ jobs:
           grep -q "Adaptive Query Execution"             /tmp/spark-lens-report.txt
           grep -q "Driver-Side Aggregation"              /tmp/spark-lens-report.txt
           grep -q "Consider Native Functions"            /tmp/spark-lens-report.txt
-          echo "All 11 expected issues detected in report."
+          # ── New scenarios (jobs 9–12) ──────────────────────────────────────
+          grep -q "Single-Task Stage"                    /tmp/spark-lens-report.txt
+          grep -q "Small Output Files"                   /tmp/spark-lens-report.txt
+          grep -q "Small Files in Stage"                 /tmp/spark-lens-report.txt
+          echo "All 14 expected issues detected in report."
 
       - name: Upload report
         if: always()
