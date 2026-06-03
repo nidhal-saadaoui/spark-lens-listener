@@ -133,6 +133,9 @@ case class StageData(
     if (hasExactAggregates) exactResultSize
     else tasks.map(_.metrics.resultSize).sum
 
+  def totalTaskCount: Int =
+    if (hasExactAggregates) exactTaskCount else tasks.size
+
   /** First line of user code that submitted this stage, extracted from the callsite stack trace.
    *  Returns empty string when details is absent or contains only Spark/JVM internals. */
   def callSite: String = {

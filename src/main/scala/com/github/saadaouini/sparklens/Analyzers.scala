@@ -33,6 +33,7 @@ object Analyzers {
     CriticalPathAnalyzer,
     DynamicAllocationAnalyzer,
     YarnAnalyzer,
+    ScalingSimulatorAnalyzer,
   )
 
   def runAll(app: SparkAppModel): Seq[Issue] = {
