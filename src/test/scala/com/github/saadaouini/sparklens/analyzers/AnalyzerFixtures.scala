@@ -156,13 +156,14 @@ object AnalyzerFixtures {
 
   /** Build a minimal PlanNode tree for use in tests. */
   def planNode(
-    name:     String,
-    children: Seq[PlanNode]    = Nil,
-    accumIds: Seq[Long]        = Nil,
-    metrics:  Map[Long, Long]  = Map.empty,
+    name:         String,
+    children:     Seq[PlanNode]    = Nil,
+    accumIds:     Seq[Long]        = Nil,
+    metrics:      Map[Long, Long]  = Map.empty,
+    simpleString: String           = "",
   ): PlanNode = PlanNode(
     nodeName        = name,
-    simpleString    = name,
+    simpleString    = if (simpleString.nonEmpty) simpleString else name,
     accumulatorIds  = accumIds,
     children        = children,
     resolvedMetrics = metrics,

@@ -1,9 +1,27 @@
 package com.github.saadaouini.sparklens.analyzers
 
-import com.github.saadaouini.sparklens.model.Warning
+import com.github.saadaouini.sparklens.model.{PlanNode, Warning}
 import AnalyzerFixtures._
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
+
+// Helpers for plan-aware tests
+private object PlanFixtures {
+  import AnalyzerFixtures._
+
+  def singleTaskStage(id: Int = 0) =
+    stage(stageId = id, tasks = Seq(task(durationMs = 30000L)),
+          submitMs = Some(0L), completeMs = Some(30000L))
+      .copy(numTasks = 1)
+
+  def appWithPlan(planText: String = "", planTree: Option[PlanNode] = None) = {
+    val s   = singleTaskStage(0)
+    val j   = job(jobId = 0, stageIds = Seq(0))
+    val sql = sqlExec(id = 0L, description = "test query", plan = planText,
+                      jobIds = Seq(0), planTree = planTree)
+    app(stages = Map(0 -> s), jobs = Map(0 -> j), sqlExecs = Map(0L -> sql))
+  }
+}
 
 class StageParallelismAnalyzerSpec extends AnyFlatSpec with Matchers {
 
@@ -106,4 +124,100 @@ class StageParallelismAnalyzerSpec extends AnyFlatSpec with Matchers {
     StageParallelismAnalyzer.analyze(a).filter(_.id.startsWith("single-task")) shouldBe empty
   }
 
+  // ── Plan-aware cause detection ────────────────────────────────────────────
+
+  "StageParallelismAnalyzer plan detection" should "identify Coalesce 1 from planTree" in {
+    import PlanFixtures._
+    val tree = planNode("Coalesce", simpleString = "Coalesce 1",
+                 children = Seq(planNode("Project")))
+    val issues = StageParallelismAnalyzer.analyze(appWithPlan(planTree = Some(tree)))
+    val i = issues.filter(_.id.startsWith("single-task")).head
+    i.description should include("Coalesce 1 node detected")
+    i.codeFix.get   should include("coalesce(")
+    i.configFix     shouldBe None
+  }
+
+  it should "not mistake Coalesce 10 for Coalesce 1 in planTree" in {
+    import PlanFixtures._
+    val tree = planNode("Coalesce", simpleString = "Coalesce 10",
+                 children = Seq(planNode("Project")))
+    val issues = StageParallelismAnalyzer.analyze(appWithPlan(planTree = Some(tree)))
+    val i = issues.filter(_.id.startsWith("single-task")).head
+    // Should fall through to unknown cause — Coalesce 10 is NOT a single-partition cause
+    i.description should not include "Coalesce 1 node"
+  }
+
+  it should "identify repartition(1) via RoundRobinPartitioning(1) in planTree" in {
+    import PlanFixtures._
+    val tree = planNode("Exchange", simpleString = "Exchange RoundRobinPartitioning(1), ENSURE_REQUIREMENTS",
+                 children = Seq(planNode("Project")))
+    val issues = StageParallelismAnalyzer.analyze(appWithPlan(planTree = Some(tree)))
+    val i = issues.filter(_.id.startsWith("single-task")).head
+    i.description should include("repartition(1)")
+    i.codeFix.get   should include("repartition(")
+  }
+
+  it should "identify SinglePartition exchange in planTree" in {
+    import PlanFixtures._
+    val tree = planNode("Exchange", simpleString = "Exchange SinglePartition, ENSURE_REQUIREMENTS",
+                 children = Seq(planNode("Sort")))
+    val issues = StageParallelismAnalyzer.analyze(appWithPlan(planTree = Some(tree)))
+    val i = issues.filter(_.id.startsWith("single-task")).head
+    i.description   should include("SinglePartition")
+    i.configFix     shouldBe defined
+    i.configFix.get should include("spark.sql.adaptive.enabled")
+  }
+
+  it should "identify CollectLimit in planTree" in {
+    import PlanFixtures._
+    val tree = planNode("CollectLimit", simpleString = "CollectLimit 100",
+                 children = Seq(planNode("Project")))
+    val issues = StageParallelismAnalyzer.analyze(appWithPlan(planTree = Some(tree)))
+    val i = issues.filter(_.id.startsWith("single-task")).head
+    i.description should include("CollectLimit")
+    i.codeFix.get should include("limit")
+  }
+
+  it should "identify TakeOrderedAndProject in planTree" in {
+    import PlanFixtures._
+    val tree = planNode("TakeOrderedAndProject", simpleString = "TakeOrderedAndProject(limit=10)",
+                 children = Seq(planNode("Project")))
+    val issues = StageParallelismAnalyzer.analyze(appWithPlan(planTree = Some(tree)))
+    val i = issues.filter(_.id.startsWith("single-task")).head
+    i.description should include("TakeOrderedAndProject")
+  }
+
+  it should "fall back to text plan when planTree is absent" in {
+    import PlanFixtures._
+    val issues = StageParallelismAnalyzer.analyze(
+      appWithPlan(planText = "...Coalesce 1\n...Project...", planTree = None))
+    val i = issues.filter(_.id.startsWith("single-task")).head
+    i.description should include("Coalesce 1 node detected")
+  }
+
+  it should "fall back to text plan when planTree has no matching node" in {
+    import PlanFixtures._
+    // planTree present but no coalesce/exchange node → check text plan
+    val tree = planNode("Project", children = Seq(planNode("Filter")))
+    val issues = StageParallelismAnalyzer.analyze(
+      appWithPlan(planText = "RoundRobinPartitioning(1)", planTree = Some(tree)))
+    val i = issues.filter(_.id.startsWith("single-task")).head
+    i.description should include("repartition(1)")
+  }
+
+  it should "use unknown cause when no SQL plan exists for the stage" in {
+    // Stage with no matching SQL execution (no jobs/sqls in app)
+    val s = PlanFixtures.singleTaskStage(0)
+    val a = app(stages = Map(0 -> s))
+    val i = StageParallelismAnalyzer.analyze(a).filter(_.id.startsWith("single-task")).head
+    i.description should include("no SQL plan available")
+  }
+
+  it should "include SQL query description in the issue description when plan is found" in {
+    import PlanFixtures._
+    val tree = planNode("Coalesce", simpleString = "Coalesce 1")
+    val issues = StageParallelismAnalyzer.analyze(
+      appWithPlan(planTree = Some(tree)))
+    issues.filter(_.id.startsWith("single-task")).head.description should include("test query")
+  }
 }
