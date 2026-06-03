@@ -1,4 +1,6 @@
-# spark-lens-listener
+<p align="center">
+  <img src="docs/logo.png" alt="SparkLens Listener" width="480"/>
+</p>
 
 [![CI](https://github.com/nidhal-saadaoui/spark-lens-listener/actions/workflows/ci.yml/badge.svg)](https://github.com/nidhal-saadaoui/spark-lens-listener/actions/workflows/ci.yml)
 [![maven](https://badges.mvnrepository.com/badge/io.github.nidhal-saadaoui/spark-lens/badge.svg?label=maven)](https://mvnrepository.com/artifact/io.github.nidhal-saadaoui/spark-lens)

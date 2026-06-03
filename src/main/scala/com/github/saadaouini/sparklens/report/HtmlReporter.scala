@@ -100,7 +100,7 @@ object HtmlReporter extends Reporter {
        |</head>
        |<body>
        |<div class="wrap">
-       |  <h1>spark-lens report</h1>
+       |  <div class="logo-wrap">${if (logoB64.nonEmpty) s"""<img src="data:image/png;base64,$logoB64" alt="SparkLens Listener" class="logo"/>""" else "<h1>SparkLens</h1>"}</div>
        |  <div class="meta">${e(app.appName)} &nbsp;&middot;&nbsp; ${e(app.appId)} &nbsp;&middot;&nbsp; Spark ${e(app.sparkVersion)}</div>
        |  <div class="cards">
        |    <div class="card"><div class="card-val score">$score<span class="denom">/100</span></div><div class="card-lbl">Health Score</div></div>
@@ -114,8 +114,23 @@ object HtmlReporter extends Reporter {
        |</html>""".stripMargin
   }
 
+  // Base64-encoded logo loaded from the JAR classpath (self-contained report, no external assets)
+  private val logoB64: String = {
+    val is = getClass.getResourceAsStream("/sparklens-logo.png")
+    if (is == null) ""
+    else try {
+      val buf = new java.io.ByteArrayOutputStream
+      val arr = new Array[Byte](8192)
+      var n   = is.read(arr)
+      while (n > 0) { buf.write(arr, 0, n); n = is.read(arr) }
+      java.util.Base64.getEncoder.encodeToString(buf.toByteArray)
+    } finally { is.close() }
+  }
+
   private val css: String =
     """  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0;background:#f9fafb;color:#111}
+  .logo-wrap{text-align:center;padding:24px 0 8px}
+  .logo{height:64px;width:auto}
       |  .wrap{max-width:900px;margin:32px auto;padding:0 20px}
       |  h1{font-size:20px;margin:0 0 4px;font-weight:700}
       |  .meta{color:#6b7280;font-size:13px;margin-bottom:24px}
