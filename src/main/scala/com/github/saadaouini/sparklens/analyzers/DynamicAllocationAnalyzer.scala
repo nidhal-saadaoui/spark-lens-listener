@@ -5,12 +5,12 @@ import ImpactEstimator._
 
 object DynamicAllocationAnalyzer extends Analyzer {
 
-  // YARN memory-kill patterns — intentionally narrow to avoid overlap with
-  // PreemptionAnalyzer which already covers general executor loss/preemption.
-  // These patterns specifically identify container kills caused by exceeding
-  // memory limits, not by YARN preemption or general cluster pressure.
+  // YARN physical-memory-kill patterns — intentionally narrow to avoid overlap
+  // with PreemptionAnalyzer (general executor loss) and YarnAnalyzer (virtual
+  // memory OOM, which has a different fix). "virtual" explicitly excluded so
+  // vmem kills are handled separately in YarnAnalyzer.
   private val yarnMemKill =
-    """(?i)(killed.*exceeding.*memory|exceed.*memory.*limit|exit.?code.?137|ExitCode.?137)""".r
+    """(?i)(exit.?code.?137|ExitCode.?137|killed.*exceeding.*(?:physical )?memory)""".r
 
   def analyze(app: SparkAppModel): Seq[Issue] = {
     val props = app.sparkProperties
@@ -97,8 +97,12 @@ object DynamicAllocationAnalyzer extends Analyzer {
     // ── 3. YARN container OOM kill ────────────────────────────────────────────
     // Narrow pattern: only matches memory-limit kills (exit 137 / "exceeding memory").
     // General executor loss and YARN preemption are handled by PreemptionAnalyzer.
+    // Exclude virtual-memory kills — those are handled by YarnAnalyzer with a
+    // completely different recommendation (vmem-check-enabled vs memoryOverhead).
     val yarnOomKilled = app.executors.values.filter { e =>
-      e.removalReason.exists(r => yarnMemKill.findFirstIn(r).isDefined)
+      e.removalReason.exists { r =>
+        yarnMemKill.findFirstIn(r).isDefined && !r.toLowerCase.contains("virtual")
+      }
     }.toSeq
 
     if (yarnOomKilled.nonEmpty) {

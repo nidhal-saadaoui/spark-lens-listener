@@ -32,6 +32,7 @@ object Analyzers {
     SchedulerDelayAnalyzer,
     CriticalPathAnalyzer,
     DynamicAllocationAnalyzer,
+    YarnAnalyzer,
   )
 
   def runAll(app: SparkAppModel): Seq[Issue] =
