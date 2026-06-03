@@ -255,4 +255,127 @@ class ExecutorSizingAnalyzerSpec extends AnyFlatSpec with Matchers {
     ExecutorSizingAnalyzer.analyze(a)
       .filter(_.id == "executor-memory-underprovisioned") shouldBe empty
   }
+
+  // ── Check 4: cores per executor — GC-driven ──────────────────────────────
+
+  it should "flag executor-cores-gc-pressure when GC > 15% and coresPerExec > 2" in {
+    // 20% GC fraction, 4 cores per executor → should fire
+    val s = stage(stageId = 0, submitMs = Some(0L), completeMs = Some(60000L)).copy(
+      hasExactAggregates      = true,
+      exactExecutorRunTimeMs  = 100000L,
+      exactGcTimeMs           = 20000L,  // 20% GC
+    )
+    val a = app(
+      stages = Map(0 -> s),
+      props  = Map("spark.executor.memory" -> "8g", "spark.executor.cores" -> "4"),
+    )
+    val issues = ExecutorSizingAnalyzer.analyze(a)
+    issues.exists(_.id == "executor-cores-gc-pressure") shouldBe true
+    val issue = issues.find(_.id == "executor-cores-gc-pressure").get
+    issue.severity shouldBe Warning
+    issue.configFix.get should include("spark.executor.cores=2")
+    issue.configFix.get should include("G1GC")
+  }
+
+  it should "not flag GC cores when coresPerExec <= 2" in {
+    val s = stage(stageId = 0, submitMs = Some(0L), completeMs = Some(60000L)).copy(
+      hasExactAggregates     = true,
+      exactExecutorRunTimeMs = 100000L,
+      exactGcTimeMs          = 20000L,
+    )
+    val a = app(
+      stages = Map(0 -> s),
+      props  = Map("spark.executor.memory" -> "8g", "spark.executor.cores" -> "2"),
+    )
+    ExecutorSizingAnalyzer.analyze(a)
+      .exists(_.id == "executor-cores-gc-pressure") shouldBe false
+  }
+
+  it should "not flag GC cores when GC fraction is below the threshold" in {
+    val s = stage(stageId = 0, submitMs = Some(0L), completeMs = Some(60000L)).copy(
+      hasExactAggregates     = true,
+      exactExecutorRunTimeMs = 100000L,
+      exactGcTimeMs          = 5000L,  // 5% GC — below 15% threshold
+    )
+    val a = app(
+      stages = Map(0 -> s),
+      props  = Map("spark.executor.memory" -> "8g", "spark.executor.cores" -> "4"),
+    )
+    ExecutorSizingAnalyzer.analyze(a)
+      .exists(_.id == "executor-cores-gc-pressure") shouldBe false
+  }
+
+  // ── Check 5: storage/execution memory conflict ────────────────────────────
+
+  it should "flag executor-storage-execution-conflict when caching + spill coexist" in {
+    val cachedStage = stage(stageId = 0).copy(
+      rddCachedNames = Set("my-dataset"),
+    )
+    val spillStage = stage(stageId = 1).copy(
+      hasExactAggregates    = true,
+      exactDiskSpillBytes   = 200L * MB,
+    )
+    val a = app(stages = Map(0 -> cachedStage, 1 -> spillStage))
+    ExecutorSizingAnalyzer.analyze(a)
+      .exists(_.id == "executor-storage-execution-conflict") shouldBe true
+  }
+
+  it should "not flag storage conflict when storageFraction is already lowered" in {
+    val cachedStage = stage(stageId = 0).copy(rddCachedNames = Set("my-dataset"))
+    val spillStage  = stage(stageId = 1).copy(
+      hasExactAggregates  = true, exactDiskSpillBytes = 200L * MB)
+    val a = app(
+      stages = Map(0 -> cachedStage, 1 -> spillStage),
+      props  = Map("spark.memory.storageFraction" -> "0.3"),
+    )
+    ExecutorSizingAnalyzer.analyze(a)
+      .exists(_.id == "executor-storage-execution-conflict") shouldBe false
+  }
+
+  it should "not flag storage conflict when there is no spill" in {
+    val cachedStage = stage(stageId = 0).copy(rddCachedNames = Set("my-dataset"))
+    val a = app(stages = Map(0 -> cachedStage))
+    ExecutorSizingAnalyzer.analyze(a)
+      .exists(_.id == "executor-storage-execution-conflict") shouldBe false
+  }
+
+  // ── Check 6: off-heap for Python/Arrow ───────────────────────────────────
+
+  it should "flag executor-offheap-not-configured when PythonUDF in SQL plan" in {
+    val sql = sqlExec(id = 0L, plan = "PythonUDF [lambda](input#0)", jobIds = Nil)
+    val a = app(
+      sqlExecs = Map(0L -> sql),
+      props    = Map("spark.executor.memory" -> "8g"),
+    )
+    val issues = ExecutorSizingAnalyzer.analyze(a)
+    issues.exists(_.id == "executor-offheap-not-configured") shouldBe true
+    val issue = issues.find(_.id == "executor-offheap-not-configured").get
+    issue.severity shouldBe Warning
+    issue.configFix.get should include("spark.memory.offHeap.enabled=true")
+    issue.configFix.get should include("spark.memory.offHeap.size=")
+  }
+
+  it should "flag off-heap for ArrowEvalPython and BatchEvalPython patterns" in {
+    val sql = sqlExec(id = 0L, plan = "ArrowEvalPython [pandas_udf](col#1)", jobIds = Nil)
+    val a = app(sqlExecs = Map(0L -> sql))
+    ExecutorSizingAnalyzer.analyze(a)
+      .exists(_.id == "executor-offheap-not-configured") shouldBe true
+  }
+
+  it should "not flag off-heap when no Python patterns are present" in {
+    val sql = sqlExec(id = 0L, plan = "SortMergeJoin [key#0]", jobIds = Nil)
+    val a = app(sqlExecs = Map(0L -> sql))
+    ExecutorSizingAnalyzer.analyze(a)
+      .exists(_.id == "executor-offheap-not-configured") shouldBe false
+  }
+
+  it should "not flag off-heap when it is already enabled" in {
+    val sql = sqlExec(id = 0L, plan = "PythonUDF [lambda](input#0)", jobIds = Nil)
+    val a = app(
+      sqlExecs = Map(0L -> sql),
+      props    = Map("spark.memory.offHeap.enabled" -> "true"),
+    )
+    ExecutorSizingAnalyzer.analyze(a)
+      .exists(_.id == "executor-offheap-not-configured") shouldBe false
+  }
 }

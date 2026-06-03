@@ -5,12 +5,15 @@ import ImpactEstimator._
 
 /**
  * Analyses whether executor and driver are sized correctly for the actual workload,
- * using the peak memory, CPU, and result-size metrics captured per stage and task.
+ * using the peak memory, CPU, GC, and result-size metrics captured per stage and task.
  *
- * Three independent checks:
+ * Six independent checks:
  *  1. Executor memory — under-provisioned (spill risk) vs over-provisioned (wasted cost)
  *  2. Driver memory   — large result transfers risk driver OOM
  *  3. Cluster cores   — max stage parallelism vs total available cores
+ *  4. Cores per executor — GC-driven recommendation (high GC → reduce cores)
+ *  5. Storage/execution memory conflict — cache competes with execution, causing spill
+ *  6. Off-heap memory — Python/Arrow workloads need off-heap sizing
  */
 object ExecutorSizingAnalyzer extends Analyzer {
 
@@ -230,6 +233,142 @@ object ExecutorSizingAnalyzer extends Analyzer {
             "max_stage_tasks"   -> maxStageTasks.toString,
             "core_util_pct"     -> fmtDouble(coreUtilPct, 1),
             "recommended_execs" -> recommendedExecs.toString,
+          ),
+          estimatedImpact = Some(configRisk),
+        )
+      }
+    }
+
+    // ── 4. Cores per executor — GC-driven recommendation ─────────────────────
+    // High app-wide GC fraction combined with multiple cores per executor is a strong
+    // signal that concurrent tasks are competing for heap. Halving cores doubles the
+    // heap available per task, typically cutting GC pressure substantially.
+    val gcWarnCoresFraction = propDouble(app, "spark.sparklens.sizing.gcWarnCoresFraction", 0.15)
+    val substageRun = app.stages.values.filter(_.totalExecutorRunTimeMs > 5000L)
+    val appRunMs  = substageRun.map(_.totalExecutorRunTimeMs).sum
+    val appGcMs   = substageRun.map(_.totalGcTimeMs).sum
+    val appGcFraction = if (appRunMs > 0) appGcMs.toDouble / appRunMs else 0.0
+
+    if (appGcFraction > gcWarnCoresFraction && coresPerExec > 2 && executorMemory.isDefined) {
+      val currentMem      = executorMemory.get
+      val recommendedCores = math.max(1, coresPerExec / 2)
+      // Reducing cores means the same memory is shared by fewer tasks → more heap per task.
+      // To keep the same total parallelism, executor count must increase proportionally.
+      val gcPct = fmtDouble(appGcFraction * 100, 0)
+      issues += Issue(
+        id              = "executor-cores-gc-pressure",
+        severity        = Warning,
+        category        = "config",
+        title           = s"$coresPerExec Cores per Executor Amplify GC Pressure — $gcPct% of executor time in GC",
+        description     =
+          s"Executors spend $gcPct% of their run time in garbage collection across all stages. " +
+          s"With $coresPerExec concurrent tasks sharing ${fmtBytes(currentMem)} of heap, " +
+          s"each task has only ${fmtBytes(currentMem / coresPerExec)} average memory. " +
+          s"Fewer cores per executor increases heap per task and reduces GC stop-the-world pauses.",
+        recommendation  =
+          s"Reduce spark.executor.cores to $recommendedCores. " +
+          s"Each task will have ${fmtBytes(currentMem / recommendedCores)} of heap instead of " +
+          s"${fmtBytes(currentMem / coresPerExec)}. " +
+          s"Increase spark.executor.instances proportionally to maintain the same total parallelism. " +
+          s"Also switch to G1GC for shorter, more predictable pauses.",
+        configFix       = Some(
+          s"spark.executor.cores=$recommendedCores\n" +
+          s"spark.executor.extraJavaOptions=-XX:+UseG1GC -XX:InitiatingHeapOccupancyPercent=35"
+        ),
+        metrics         = Map(
+          "cores_per_executor" -> coresPerExec.toString,
+          "app_gc_fraction"    -> fmtDouble(appGcFraction, 3),
+          "app_gc_ms"          -> appGcMs.toString,
+          "executor_memory"    -> fmtBytes(currentMem),
+        ),
+        estimatedImpact = Some(configRisk),
+      )
+    }
+
+    // ── 5. Storage/execution memory conflict ──────────────────────────────────
+    // Spark's unified memory model uses spark.memory.storageFraction (default 0.5) to
+    // split the pool between storage (cache) and execution. When both are under pressure
+    // simultaneously — cache consuming its half while execution tasks need to sort/hash
+    // large datasets — storage evicts execution pages, causing disk spill even when the
+    // heap would otherwise be large enough. Lowering storageFraction shifts the balance
+    // towards execution at the cost of less stable cache.
+    val hasCaching = app.stages.values.exists(_.rddCachedNames.nonEmpty)
+    val hasSpillForConflict = app.stages.values.exists(_.totalDiskSpillBytes > 100L * MB)
+    val storageFraction = app.prop("spark.memory.storageFraction")
+      .flatMap(s => scala.util.Try(s.toDouble).toOption).getOrElse(0.5)
+
+    if (hasCaching && hasSpillForConflict && storageFraction >= 0.5) {
+      issues += Issue(
+        id              = "executor-storage-execution-conflict",
+        severity        = Warning,
+        category        = "config",
+        title           = "Storage and Execution Memory Competing — Cache May Be Evicting Execution Pages",
+        description     =
+          "This job both caches RDDs/DataFrames and has significant disk spill. " +
+          s"With spark.memory.storageFraction=${fmtDouble(storageFraction, 1)}, storage memory " +
+          "holds half the unified pool. When execution tasks need more memory to sort or hash, " +
+          "storage pages are evicted — but the eviction itself triggers more I/O, compounding the spill.",
+        recommendation  =
+          "Lower spark.memory.storageFraction to 0.3 to give execution more headroom. " +
+          "If cache hit rate is critical, switch cached datasets to MEMORY_AND_DISK so evicted " +
+          "partitions spill to disk rather than causing execution-side spill. " +
+          "Alternatively, increase executor memory so both pools are adequately sized.",
+        configFix       = Some(
+          "spark.memory.storageFraction=0.3\n" +
+          "# and ensure cached datasets use MEMORY_AND_DISK:\n" +
+          "# df.persist(StorageLevel.MEMORY_AND_DISK)"
+        ),
+        estimatedImpact = Some(configRisk),
+      )
+    }
+
+    // ── 6. Off-heap memory for Python/Arrow workloads ─────────────────────────
+    // Python UDFs, pandas UDFs (Arrow), and native libraries allocate memory outside the
+    // JVM heap. This off-heap usage is invisible to Spark's memory manager and counts
+    // against the OS container limit (YARN container, K8s pod memory limit). Without
+    // spark.memory.offHeap, this memory is untracked and can cause OOM kills even when
+    // the JVM heap appears healthy. Enabling off-heap allows Spark to account for and
+    // limit off-heap usage via the memory manager.
+    val offHeapEnabled = app.prop("spark.memory.offHeap.enabled")
+      .map(_.toLowerCase == "true").getOrElse(false)
+
+    if (!offHeapEnabled) {
+      val pythonPatterns = Seq("PythonUDF", "BatchEvalPython", "ArrowEvalPython",
+                               "MapInArrow", "FlatMapGroupsInPandas", "MapInPandas")
+      val hasPython = app.sqlExecutions.values.exists { sql =>
+        pythonPatterns.exists(sql.physicalPlan.contains)
+      }
+
+      if (hasPython) {
+        val execMem      = executorMemory.getOrElse(4L * GB)
+        // Recommended off-heap: 25% of executor memory, minimum 2 GB.
+        // This accounts for Arrow batch buffers + Python subprocess + cloudpickle overhead.
+        val offHeapSize  = fmtGiB(math.max(2L * GB, execMem / 4))
+        issues += Issue(
+          id              = "executor-offheap-not-configured",
+          severity        = Warning,
+          category        = "config",
+          title           = "Python/Arrow UDFs Detected — Off-Heap Memory Not Configured",
+          description     =
+            "Python UDFs (including pandas UDFs with Arrow) allocate memory outside the JVM heap. " +
+            "This off-heap usage — Python subprocess RSS, Arrow batch buffers, cloudpickle serialization — " +
+            "is invisible to Spark's memory manager and counts against the OS container limit. " +
+            "Without off-heap configuration, executors can be killed by YARN/K8s for exceeding the " +
+            "container memory limit even though the JVM heap looks healthy.",
+          recommendation  =
+            s"Enable off-heap memory and size it to at least 25% of executor memory ($offHeapSize). " +
+            "For heavy pandas UDF workloads (large Arrow batches), increase to 50% or more. " +
+            "Also raise spark.executor.memoryOverheadFactor to 0.4 on YARN to ensure the container " +
+            "limit covers both JVM heap and off-heap usage.",
+          configFix       = Some(
+            s"spark.memory.offHeap.enabled=true\n" +
+            s"spark.memory.offHeap.size=$offHeapSize\n" +
+            s"# on YARN also set:\n" +
+            s"# spark.executor.memoryOverheadFactor=0.4"
+          ),
+          metrics         = Map(
+            "executor_memory"      -> fmtBytes(execMem),
+            "recommended_offheap"  -> offHeapSize,
           ),
           estimatedImpact = Some(configRisk),
         )
