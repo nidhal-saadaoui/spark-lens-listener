@@ -9,7 +9,7 @@ import org.apache.spark.sql.execution.ui.{
   SparkListenerSQLExecutionStart,
 }
 
-import java.util.logging.{Level, Logger}
+import org.slf4j.LoggerFactory
 
 /**
  * Zero-config Spark performance analyzer.
@@ -43,7 +43,7 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
   // Secondary no-arg constructor for older Spark versions that don't pass SparkConf
   def this() = this(new SparkConf())
 
-  private val log = Logger.getLogger(classOf[SparkLensListener].getName)
+  private val log = LoggerFactory.getLogger(classOf[SparkLensListener])
 
   // Parse comma-separated output list; normalise and deduplicate.
   private val outputFormats: Set[String] =
@@ -145,8 +145,7 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
         emitFormat(format, app, issues)
       } catch {
         case ex: Exception =>
-          log.log(Level.WARNING,
-            s"spark-lens: failed to write '$format' report: ${ex.getMessage}", ex)
+          log.warn(s"spark-lens: failed to write '$format' report: ${ex.getMessage}", ex)
       }
     }
 
@@ -181,13 +180,15 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
         if (path.isDefined) {
           LogReporter.write(app, issues, path)
         } else {
-          // No path → print directly to stdout. Using java.util.logging was unreliable:
-          // when Spark's JUL-to-SLF4J bridge is active the lines enter the log4j pipeline
-          // where most cluster configs filter out com.github.saadaouini.sparklens and the
-          // messages are silently dropped. Driver stdout is always captured by YARN, K8s,
-          // Databricks, and EMR regardless of logging configuration.
-          LogReporter.renderLines(app, issues).foreach { case (_, line) => println(line) }
-          System.out.flush()
+          // No path → write through SLF4J so lines appear inline in the driver log
+          // with the same format, timestamp, and appenders as the rest of Spark's output.
+          // SLF4J is always on the Spark driver classpath; going direct avoids the
+          // JUL-to-SLF4J bridge which was filtering our logger namespace.
+          import java.util.logging.Level.{WARNING => JUL_WARN}
+          LogReporter.renderLines(app, issues).foreach {
+            case (JUL_WARN, line) => log.warn(line)
+            case (_,        line) => log.info(line)
+          }
         }
       case _ => TextReporter.write(app, issues, path)
     }

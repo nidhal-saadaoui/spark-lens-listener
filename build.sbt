@@ -32,6 +32,11 @@ lazy val root = (project in file("."))
     libraryDependencies ++= Seq(
       "org.apache.spark" %% "spark-core" % "3.5.0" % "provided",
       "org.apache.spark" %% "spark-sql"  % "3.5.0" % "provided",
+      // SLF4J is always on the Spark driver classpath; we use it directly so the
+      // log format writes through log4j/logback with the same format as Spark itself.
+      // 1.7.36 compiles and works at runtime against both SLF4J 1.7.x (Spark 3.2/3.3)
+      // and SLF4J 2.x (Spark 3.4+) — the 2.x API is fully backward-compatible.
+      "org.slf4j"        %  "slf4j-api"  % "1.7.36" % "provided",
     ),
 
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.18" % Test,
