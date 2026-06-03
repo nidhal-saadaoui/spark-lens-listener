@@ -181,10 +181,13 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
         if (path.isDefined) {
           LogReporter.write(app, issues, path)
         } else {
-          // No path → write through Java logger so lines appear inline in the driver log.
-          LogReporter.renderLines(app, issues).foreach { case (level, line) =>
-            log.log(level, line)
-          }
+          // No path → print directly to stdout. Using java.util.logging was unreliable:
+          // when Spark's JUL-to-SLF4J bridge is active the lines enter the log4j pipeline
+          // where most cluster configs filter out com.github.saadaouini.sparklens and the
+          // messages are silently dropped. Driver stdout is always captured by YARN, K8s,
+          // Databricks, and EMR regardless of logging configuration.
+          LogReporter.renderLines(app, issues).foreach { case (_, line) => println(line) }
+          System.out.flush()
         }
       case _ => TextReporter.write(app, issues, path)
     }
