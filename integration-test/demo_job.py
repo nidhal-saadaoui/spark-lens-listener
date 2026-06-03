@@ -127,12 +127,9 @@ double_id = udf(lambda x: x * 2, LongType())
 spark.range(10_000).withColumn("doubled", double_id(F.col("id"))).agg(F.sum("doubled")).collect()
 print("   udf job done")
 
-# ── Lower thresholds so patterns fire reliably on fast CI hardware ────────────
-spark.conf.set("spark.sparklens.stageParallelism.singleTaskMinMs", "200")
-spark.conf.set("spark.sparklens.io.minDurationMs",                  "500")
-spark.conf.set("spark.sparklens.io.ioFloorMbps",                    "0.1")
-
 # ── 9. Single-task stage → StageParallelismAnalyzer ──────────────────────────
+# Threshold override (singleTaskMinMs=500) is passed as --conf in spark-submit
+# so it is captured at onApplicationStart by the listener.
 # repartition(1) collapses all data to one partition → 1-task aggregation stage.
 print(">> Job 9: repartition(1) aggregation — single-task stage")
 spark.range(2_000_000).repartition(1).agg(F.sum("id")).collect()

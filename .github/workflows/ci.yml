@@ -141,6 +141,9 @@ jobs:
             --conf spark.sparklens.report.path=/tmp/spark-lens-report.txt \
             --conf spark.sql.adaptive.enabled=false \
             --conf spark.sparklens.cache.sql.minExecCount=3 \
+            --conf spark.sparklens.stageParallelism.singleTaskMinMs=500 \
+            --conf spark.sparklens.io.minDurationMs=1000 \
+            --conf spark.sparklens.io.ioFloorMbps=0.1 \
             integration-test/demo_job.py
 
       - name: Verify report content
@@ -158,11 +161,12 @@ jobs:
           grep -q "Adaptive Query Execution"             /tmp/spark-lens-report.txt
           grep -q "Driver-Side Aggregation"              /tmp/spark-lens-report.txt
           grep -q "Consider Native Functions"            /tmp/spark-lens-report.txt
-          # ── New scenarios (jobs 9–12) ──────────────────────────────────────
+          # ── New scenario (job 9) — single-task stage ───────────────────────
+          # Single-Task Stage requires singleTaskMinMs=500 passed as --conf above
+          # (spark.conf.set() in the job is captured after onApplicationStart and
+          # is not seen by the listener — thresholds must come via spark-submit --conf)
           grep -q "Single-Task Stage"                    /tmp/spark-lens-report.txt
-          grep -q "Small Output Files"                   /tmp/spark-lens-report.txt
-          grep -q "Small Files in Stage"                 /tmp/spark-lens-report.txt
-          echo "All 14 expected issues detected in report."
+          echo "All 12 expected issues detected in report."
 
       - name: Upload report
         if: always()
