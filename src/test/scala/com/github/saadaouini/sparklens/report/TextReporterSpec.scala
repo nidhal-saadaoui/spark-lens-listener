@@ -13,14 +13,14 @@ class TextReporterSpec extends AnyFlatSpec with Matchers {
     Issue(id, Warning, "io", s"Issue $id", "desc", "rec",
       estimatedImpact = Some(EstimatedImpact("s", Some(ms), None, "medium")))
 
-  "TextReporter" should "show 5 priority fixes by default" in {
+  "TextReporter" should "show all issues up to 20 by default" in {
     val issues = (1 to 7).map(i => issueWithSavings(s"issue-$i", i * 10000L))
     val output = TextReporter.renderString(app(), issues)
-    // Count lines matching "  N. [" pattern (priority fix entries)
+    // All 7 issues have savings >= 1s and total < 20 — all should appear
     val priorityLines = output.linesIterator
       .filter(l => l.trim.matches("""\d+\. \[.*"""))
       .toSeq
-    priorityLines should have size 5
+    priorityLines should have size 7
   }
 
   it should "respect spark.sparklens.report.maxPriorityFixes=2" in {

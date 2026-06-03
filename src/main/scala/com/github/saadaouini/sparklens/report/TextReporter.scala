@@ -55,7 +55,7 @@ object TextReporter extends Reporter {
     // Sort by absolute savings so the most impactful fix leads, regardless of severity.
     // Configurable via spark.sparklens.report.maxPriorityFixes (default 5).
     val maxPriority = app.prop("spark.sparklens.report.maxPriorityFixes")
-      .flatMap(s => scala.util.Try(s.toInt).toOption).getOrElse(5)
+      .flatMap(s => scala.util.Try(s.toInt).toOption).getOrElse(20)
     val ranked = issues
       .filter(i => i.estimatedImpact.flatMap(_.savedTimeMs).exists(_ >= 1000L))
       .sortBy(i => -i.estimatedImpact.flatMap(_.savedTimeMs).getOrElse(0L))
