@@ -5,6 +5,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.1] — 2026-06-03
+
+### Listener overhead measurement
+- SparkLens now self-times its `onTaskEnd` callback (the hot path). Every report footer line shows: `SparkLens: 2.5M task events · 340ms listener overhead (0.1% of app time)`
+- JSON output gains a `"listener_overhead_ms"` field (omitted when no task events were recorded)
+- Driver log receives a `WARN` when SparkLens overhead exceeds 5% of app duration, naming the task count so users can decide whether to disable the listener on that workload
+
+### Savings deduplication by root-cause cluster
+- `total_estimated_savings_ms` in JSON now takes the **maximum** savings per root-cause cluster and sums across clusters, capped at app duration. Issues linked via `relatedIds` no longer each contribute independently — a `coalesce(1)` causing 4 issues each claiming 30 min now correctly reports 30 min total, not 120 min
+- Priority fixes section in text report now collapses related issues into a single entry with a `(+N covered)` suffix. The root fix appears once at the top of the ranked list; the count tells you how many additional issues the same fix resolves
+
+---
+
 ## [1.4.0] — 2026-06-03
 
 ### ExecutorSizingAnalyzer — 3 new sizing checks

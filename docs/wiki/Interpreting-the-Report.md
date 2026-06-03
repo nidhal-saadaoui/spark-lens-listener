@@ -21,7 +21,7 @@ The health score is a simple linear deduction from 100:
 
 The score is floored at 0. There are no per-category caps — many Critical issues can push the score all the way to zero.
 
-> **Note:** The score reflects the number of detected issues, not their root-cause complexity. Five issues caused by a single `coalesce(1)` call all count independently. After fixing the root cause, all five issues disappear and the score jumps.
+> **Note:** The score uses root-cause clustering before scoring. Issues linked by `relatedIds` (i.e. they share affected stages and both have quantifiable savings) count as one cluster — fixing the root cause removes all of them at once. Without clustering, a single `coalesce(1)` causing spill + low-CPU + single-task + low-parallelism would deduct 4×10 = 40 pts for what is effectively one fix.
 
 ---
 
@@ -29,12 +29,16 @@ The score is floored at 0. There are no per-category caps — many Critical issu
 
 The priority fixes section at the top of the text report shows the top 20 issues (configurable via `spark.sparklens.report.maxPriorityFixes`) ranked by **estimated wall-clock savings**, regardless of severity.
 
+Issues that share a root cause are **collapsed into a single entry** — the representative (highest savings) appears with a `(+N covered)` suffix showing how many co-located issues the same fix would also resolve.
+
 ```
 Priority fixes (estimated savings per run):
-  1. [WARNING] Single-Task Stage 1 — Entire Stage Runs on One Executor  ~16.7min  (68% of app time)
-  2. [INFO]    Low CPU Utilization in Stage 2 — 2% CPU [+1 more stages]  ~6.9min
-  3. [CRITICAL] Disk Spill in Stage 1 (insertInto…)  ~1.5min  (6% of app time)
+  1. [WARNING] Single-Task Stage 1 — Entire Stage on One Executor  ~16.7min  (68%)  (+2 covered)
+  2. [INFO]    Low CPU Utilization in Stage 4 — 2% CPU  ~6.9min
+  3. [CRITICAL] Disk Spill in Stage 7 (insertInto…)  ~1.5min  (6% of app time)
 ```
+
+In entry 1, `(+2 covered)` means the same fix (likely `repartition(N)`) also resolves 2 other issues — spill and low-parallelism — that are grouped under this entry. You do not need to act on each independently.
 
 The `(X% of app time)` label is shown when savings are ≤100% of app duration. When an issue's savings estimate exceeds the total app duration (which can happen for I/O-based estimates), the percentage is suppressed to avoid misleading output.
 
@@ -65,7 +69,7 @@ Every savings estimate is a model approximation. Read them as relative compariso
 
 3. **Grouped-issue savings are summed.** When multiple stages of the same type are merged (e.g., `cpu [+1 more stages]`), the displayed savings is the sum across all stages. This is the total potential gain if ALL affected stages are fixed.
 
-4. **Overlapping savings.** Multiple issues can share the same root cause. Fixing `coalesce(1)` simultaneously eliminates the single-task issue, the spill, the low-CPU, and the low-parallelism issues. The combined savings in the priority list appear additive but the actual gain is from one fix.
+4. **Root-cause deduplication.** `total_estimated_savings_ms` (JSON) and the priority fixes list both deduplicate by root-cause cluster: for issues linked via `relatedIds`, only the **maximum** savings in each cluster contributes to the total (not the sum). The total is also capped at app duration. This means a `coalesce(1)` cluster with 4 issues each claiming 30 min reports 30 min, not 120 min. Individual issue `estimatedImpact.savedTimeMs` values are still the raw per-issue estimates.
 
 ---
 
@@ -143,3 +147,21 @@ The percentage label is suppressed when estimated savings > total app duration. 
 - A grouped issue sums savings from many stages
 
 In these cases the absolute time label (e.g., `~1.5min`) is still shown and is meaningful for comparison purposes.
+
+---
+
+## SparkLens self-instrumentation footer
+
+Every text report ends with a footer line showing SparkLens's own cost:
+
+```
+  SparkLens: 2.5M task events · 42ms listener overhead  (0.0% of app time)
+```
+
+- **task events** — number of `onTaskEnd` callbacks processed on the driver
+- **listener overhead** — total wall-clock time SparkLens spent inside those callbacks (nanoTime-measured, converted to ms)
+- **% of app time** — only shown when ≥ 0.1%; suppressed for negligible values
+
+The JSON report includes `"listener_overhead_ms"` for the same figure.
+
+If overhead exceeds 5% of app duration, the driver log receives a `WARN` with the task count and a suggestion to disable the listener on that workload. For context: on a modern 16-core driver, processing one million tasks takes roughly 100–200 ms.

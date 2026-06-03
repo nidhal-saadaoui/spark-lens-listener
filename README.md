@@ -168,7 +168,7 @@ The JSON schema is stable and suitable for CI parsers or dashboards:
 
 ```json
 {
-  "spark_lens_version": "1.4.0",
+  "spark_lens_version": "1.4.1",
   "app_id": "app-20241105-0042",
   "app_name": "daily-user-aggregation",
   "spark_version": "3.5.0",
@@ -191,9 +191,12 @@ The JSON schema is stable and suitable for CI parsers or dashboards:
     "affected_jobs": [],
     "metrics": {},
     "estimated_impact": {"summary": "...", "confidence": "low"}
-  }]
+  }],
+  "listener_overhead_ms": 42
 }
 ```
+
+> **Note on `total_estimated_savings_ms`:** When multiple issues share a root cause (linked via `relatedIds`), SparkLens takes the **maximum** savings per cluster and sums across clusters, capped at app duration. This prevents the total from exceeding reality when a single fix (e.g. removing `coalesce(1)`) would resolve several issues simultaneously.
 
 ## Permanent cluster configuration
 
