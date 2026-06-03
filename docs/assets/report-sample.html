@@ -37,72 +37,86 @@
   .locations{margin-top:10px;display:flex;flex-wrap:wrap;gap:5px}
   .pill{font-size:11px;background:#fff;border:1px solid #d1d5db;border-radius:4px;padding:2px 7px;color:#374151;font-family:'SFMono-Regular',Consolas,monospace}
   .no-issues{color:#15803d;font-weight:600;font-size:15px}
+  .impact-badge{font-size:11px;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;border-radius:4px;padding:2px 7px;margin-left:8px;font-weight:500}
+  .metrics-table{border-collapse:collapse;margin:8px 0;font-size:12px;font-family:'SFMono-Regular',Consolas,monospace}
+  .metrics-table .mkey{color:#6b7280;padding:2px 10px 2px 0;white-space:nowrap}
+  .metrics-table .mval{color:#111;font-weight:600;padding:2px 0}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>spark-lens report</h1>
-  <div class="meta">daily-revenue-pipeline &nbsp;&middot;&nbsp; local-1780243680789 &nbsp;&middot;&nbsp; Spark 3.5.5</div>
+  <div class="meta">daily-revenue-pipeline &nbsp;&middot;&nbsp; app-20241105-0042 &nbsp;&middot;&nbsp; Spark 3.5.1</div>
   <div class="cards">
-    <div class="card"><div class="card-val score">64<span class="denom">/100</span></div><div class="card-lbl">Health Score</div></div>
-    <div class="card"><div class="card-val crit">0</div><div class="card-lbl">Critical</div></div>
-    <div class="card"><div class="card-val warn">3</div><div class="card-lbl">Warning</div></div>
+    <div class="card"><div class="card-val score">46<span class="denom">/100</span></div><div class="card-lbl">Health Score</div></div>
+    <div class="card"><div class="card-val crit">1</div><div class="card-lbl">Critical</div></div>
+    <div class="card"><div class="card-val warn">2</div><div class="card-lbl">Warning</div></div>
     <div class="card"><div class="card-val info-n">2</div><div class="card-lbl">Info</div></div>
   </div>
-  <details class="issue warning" open>
+  <details class="issue critical" open>
   <summary>
-    <span class="badge">WARNING</span>
-    <span class="issue-title">Java Serializer in Use — Switch to Kryo</span>
+    <span class="badge">CRITICAL</span>
+    <span class="issue-title">Disk Spill in Stage 1 — 3.4 GB spilled</span><span class="impact-badge">high confidence &nbsp; ~3,2m saved</span>
   </summary>
   <div class="issue-body">
-    <p class="desc">Java serialization is 10× slower than Kryo and produces 2–10× larger byte arrays. Every JVM shuffle write, broadcast variable, and RDD persist pays this cost. Note: Python closures in PySpark are always serialized by cloudpickle regardless of this setting — the benefit applies to JVM-side objects (Scala/Java RDDs, broadcast variables, accumulators).</p>
-    <p class="rec"><span class="arrow">&#8594;</span> Switch to Kryo for JVM workloads. Register your domain classes for maximum performance (unregistered classes fall back to class-name strings which waste space). For pure PySpark jobs this is a minor improvement; focus on Arrow/pandas UDFs to reduce Python serialization overhead instead.</p>
-    <div class="fix-label">config</div><pre class="fix-block">spark.serializer=org.apache.spark.serializer.KryoSerializer</pre><div class="fix-label">code</div><pre class="fix-block">spark.conf.set(&quot;spark.serializer&quot;, &quot;org.apache.spark.serializer.KryoSerializer&quot;)
-// optionally: spark.conf.set(&quot;spark.kryo.registrationRequired&quot;, &quot;false&quot;)</pre>
+    <p class="desc">Stage 1 spilled 3.4 GB to disk across 120 tasks. Disk I/O is 10–100× slower than RAM — this stage is paying a heavy I/O tax on every shuffle write.</p>
+    <p class="rec"><span class="arrow">&#8594;</span> Raise spark.executor.memory so the execution pool fits the working set, or reduce spark.executor.cores to lower concurrent memory pressure.</p>
+    <div class="fix-label">config</div><pre class="fix-block">spark.executor.memory=8g
+# or reduce cores to lower concurrent peak demand:
+# spark.executor.cores=2</pre><div class="fix-label">metrics</div><table class="metrics-table"><tr><td class="mkey">disk_spill_bytes</td><td class="mval">3.4 GB</td></tr>
+<tr><td class="mkey">memory_spill_bytes</td><td class="mval">12.1 GB</td></tr>
+<tr><td class="mkey">stage_duration_ms</td><td class="mval">87000</td></tr></table><div class="locations"><span class="pill">stage&nbsp;1</span></div>
   </div>
 </details>
 <details class="issue warning" open>
   <summary>
     <span class="badge">WARNING</span>
-    <span class="issue-title">Adaptive Query Execution (AQE) Is Disabled</span>
+    <span class="issue-title">Shuffle Hot-Key Skew in Stage 1</span><span class="impact-badge">high confidence &nbsp; ~1,6m saved</span>
+  </summary>
+  <div class="issue-body">
+    <p class="desc">Top-5% of tasks hold 71% of stage time. The largest task ran for 52 s while the median was 3 s (p95/p50 ratio: 17×). Shuffle skew detected — the data distribution is uneven across reduce partitions.</p>
+    <p class="rec"><span class="arrow">&#8594;</span> Enable AQE skew-join handling so Spark automatically splits skewed partitions at runtime.</p>
+    <div class="fix-label">config</div><pre class="fix-block">spark.sql.adaptive.enabled=true
+spark.sql.adaptive.skewJoin.enabled=true</pre><div class="fix-label">metrics</div><table class="metrics-table"><tr><td class="mkey">p95_task_ms</td><td class="mval">52000</td></tr>
+<tr><td class="mkey">p50_task_ms</td><td class="mval">3000</td></tr>
+<tr><td class="mkey">p95_p50_ratio</td><td class="mval">17.3</td></tr>
+<tr><td class="mkey">top5pct_share</td><td class="mval">71%</td></tr></table><div class="locations"><span class="pill">stage&nbsp;1</span></div>
+  </div>
+</details>
+<details class="issue warning" open>
+  <summary>
+    <span class="badge">WARNING</span>
+    <span class="issue-title">SortMergeJoin With Broadcast Disabled — Stage 2</span><span class="impact-badge">medium confidence &nbsp; ~28,0s saved</span>
+  </summary>
+  <div class="issue-body">
+    <p class="desc">Stage 2 contains a SortMergeJoin but autoBroadcastJoinThreshold is set to -1, disabling broadcast entirely. The right side of the join (estimated 280 MB) could be broadcast instead of shuffled.</p>
+    <p class="rec"><span class="arrow">&#8594;</span> Remove the broadcast disable or raise the threshold so small tables are broadcast automatically.</p>
+    <div class="fix-label">config</div><pre class="fix-block">spark.sql.autoBroadcastJoinThreshold=314572800  # 300 MB</pre><div class="fix-label">code</div><pre class="fix-block">import org.apache.spark.sql.functions.broadcast
+df_large.join(broadcast(df_small), &quot;key&quot;)</pre><div class="fix-label">metrics</div><table class="metrics-table"><tr><td class="mkey">right_side_bytes</td><td class="mval">280 MB</td></tr>
+<tr><td class="mkey">shuffle_written</td><td class="mval">1.1 GB</td></tr></table><div class="locations"><span class="pill" title="com.acme.pipeline.DailyRevenue.compute(DailyRevenue.scala:42)">stage&nbsp;2</span></div><div class="locations"><span class="pill">job&nbsp;1</span></div>
+  </div>
+</details>
+<details class="issue info" open>
+  <summary>
+    <span class="badge">INFO</span>
+    <span class="issue-title">Java Serializer in Use — Switch to Kryo</span><span class="impact-badge">low confidence</span>
+  </summary>
+  <div class="issue-body">
+    <p class="desc">Java serialization is 10× slower than Kryo and produces 2–10× larger byte arrays. Every JVM shuffle write, broadcast variable, and RDD persist pays this cost.</p>
+    <p class="rec"><span class="arrow">&#8594;</span> Switch to Kryo for JVM workloads. Register your domain classes for maximum performance.</p>
+    <div class="fix-label">config</div><pre class="fix-block">spark.serializer=org.apache.spark.serializer.KryoSerializer</pre><div class="fix-label">code</div><pre class="fix-block">spark.conf.set(&quot;spark.serializer&quot;, &quot;org.apache.spark.serializer.KryoSerializer&quot;)
+// optionally: spark.conf.set(&quot;spark.kryo.registrationRequired&quot;, &quot;false&quot;)</pre>
+  </div>
+</details>
+<details class="issue info" open>
+  <summary>
+    <span class="badge">INFO</span>
+    <span class="issue-title">Adaptive Query Execution (AQE) Is Disabled</span><span class="impact-badge">low confidence</span>
   </summary>
   <div class="issue-body">
     <p class="desc">AQE automatically coalesces shuffle partitions, handles skew, and switches join strategies at runtime. Disabling it forces static planning.</p>
     <p class="rec"><span class="arrow">&#8594;</span> Enable AQE for all production workloads on Spark 3.x.</p>
     <div class="fix-label">config</div><pre class="fix-block">spark.sql.adaptive.enabled=true</pre>
-  </div>
-</details>
-<details class="issue warning" open>
-  <summary>
-    <span class="badge">WARNING</span>
-    <span class="issue-title">Excessive Shuffles in &quot;count at NativeMethodAccessorImpl.java:0&quot; (6 exchanges) [+1 more queries]</span>
-  </summary>
-  <div class="issue-body">
-    <p class="desc">The query plan contains 6 shuffle exchanges. Each exchange sorts and repartitions the entire dataset across the network — 6 exchanges means the data crosses the network 6 times.</p>
-    <p class="rec"><span class="arrow">&#8594;</span> Restructure the query to reduce shuffles: combine multiple groupBy steps into one, pre-partition source data by the join/group key using bucket tables, and cache shared intermediate results used in multiple branches. Enable AQE so Spark can coalesce small post-shuffle partitions at runtime.</p>
-    <div class="fix-label">config</div><pre class="fix-block">spark.sql.adaptive.enabled=true</pre><div class="locations"><span class="pill">job&nbsp;2</span> <span class="pill">job&nbsp;3</span> <span class="pill">job&nbsp;4</span> <span class="pill">job&nbsp;5</span></div>
-  </div>
-</details>
-<details class="issue info" open>
-  <summary>
-    <span class="badge">INFO</span>
-    <span class="issue-title">Low Executor Memory Overhead — Risk of Off-Heap OOM</span>
-  </summary>
-  <div class="issue-body">
-    <p class="desc">Executor memory is 1g with only 10% overhead. Native memory usage (Python UDFs, Arrow, native libs) can exceed this.</p>
-    <p class="rec"><span class="arrow">&#8594;</span> Set memoryOverhead to at least 10% of executor memory, or 512 MB minimum for PySpark jobs.</p>
-    <div class="fix-label">config</div><pre class="fix-block">spark.executor.memoryOverheadFactor=0.2</pre>
-  </div>
-</details>
-<details class="issue info" open>
-  <summary>
-    <span class="badge">INFO</span>
-    <span class="issue-title">Default Shuffle Partitions (200) — May Be Too Few or Too Many</span>
-  </summary>
-  <div class="issue-body">
-    <p class="desc">The default of 200 shuffle partitions is rarely optimal. Too few causes large tasks and spill; too many causes overhead from small tasks.</p>
-    <p class="rec"><span class="arrow">&#8594;</span> Enable AQE to auto-tune, or set to 2–3× the number of executor cores in your cluster.</p>
-    <div class="fix-label">config</div><pre class="fix-block">spark.sql.adaptive.enabled=true  # lets AQE pick the right value</pre>
   </div>
 </details>
 </div>
