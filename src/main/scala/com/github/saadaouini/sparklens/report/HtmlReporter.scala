@@ -84,9 +84,44 @@ object HtmlReporter extends Reporter {
          |</details>""".stripMargin
     }.mkString("\n")
 
+    // ── Savings bar chart ────────────────────────────────────────────────────
+    // Top issues with quantifiable savings — horizontal SVG bars, self-contained.
+    val chartIssues = issues
+      .filter(_.estimatedImpact.flatMap(_.savedTimeMs).exists(_ >= 1000L))
+      .sortBy(i => -i.estimatedImpact.flatMap(_.savedTimeMs).getOrElse(0L))
+      .take(10)
+
+    val chart = if (chartIssues.isEmpty) "" else {
+      val maxMs   = chartIssues.head.estimatedImpact.flatMap(_.savedTimeMs).getOrElse(1L).toDouble
+      val rowH    = 36
+      val labelW  = 280
+      val barMaxW = 320
+      val padH    = 12
+      val totalH  = chartIssues.size * rowH + padH * 2
+      val rows = chartIssues.zipWithIndex.map { case (iss, i) =>
+        val ms      = iss.estimatedImpact.flatMap(_.savedTimeMs).getOrElse(0L)
+        val barW    = math.max(4, (ms / maxMs * barMaxW).toInt)
+        val y       = padH + i * rowH
+        val midY    = y + rowH / 2
+        val color   = if (iss.severity == Critical) "#e53e3e"
+                      else if (iss.severity == Warning) "#F47920" else "#4a90d9"
+        val label   = iss.title.take(42) + (if (iss.title.length > 42) "…" else "")
+        val timeStr = fmtMs(ms)
+        s"""<text x="${labelW - 8}" y="${midY + 5}" class="chart-lbl" text-anchor="end">${e(label)}</text>
+           |  <rect x="$labelW" y="${y + 4}" width="$barW" height="${rowH - 8}" rx="3" fill="$color" opacity="0.85"/>
+           |  <text x="${labelW + barW + 6}" y="${midY + 5}" class="chart-val">$timeStr</text>""".stripMargin
+      }.mkString("\n  ")
+      s"""<div class="chart-wrap">
+         |  <div class="chart-title">Estimated savings per run</div>
+         |  <svg width="${labelW + barMaxW + 80}" height="$totalH" class="chart-svg">
+         |  $rows
+         |  </svg>
+         |</div>""".stripMargin
+    }
+
     val body = if (issues.isEmpty)
       """<p class="no-issues">&#10004; No issues detected.</p>"""
-    else issueCards
+    else chart + "\n" + issueCards
 
     s"""<!DOCTYPE html>
        |<html lang="en">
@@ -130,6 +165,11 @@ object HtmlReporter extends Reporter {
   private val css: String =
     """  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0;background:#f9fafb;color:#111}
   .logo-wrap{text-align:center;padding:24px 0 8px}
+  .chart-wrap{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px 20px;margin:0 0 20px}
+  .chart-title{font-size:13px;font-weight:600;color:#8a9bb5;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+  .chart-svg{display:block;overflow:visible}
+  .chart-lbl{font-size:12px;fill:#3d5178;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+  .chart-val{font-size:11px;fill:#8a9bb5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
   .logo{height:64px;width:auto}
       |  .wrap{max-width:900px;margin:32px auto;padding:0 20px}
       |  h1{font-size:20px;margin:0 0 4px;font-weight:700}

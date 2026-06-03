@@ -5,6 +5,46 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.4.0] — 2026-06-03
+
+### ExecutorSizingAnalyzer — 3 new sizing checks
+- **executor-cores-gc-pressure** — warns when app-wide GC fraction >15% AND coresPerExec >2. High GC with many cores means concurrent tasks share too little heap. Recommends halving cores (doubles heap per task) + G1GC
+- **executor-storage-execution-conflict** — warns when the job caches RDDs/DataFrames AND has significant disk spill AND spark.memory.storageFraction=0.5 (default). Indicates storage memory is evicting execution pages. Recommends lowering to 0.3
+- **executor-offheap-not-configured** — warns when Python/Arrow UDF patterns (PythonUDF, ArrowEvalPython, etc.) are detected AND spark.memory.offHeap.enabled is not true. Recommends enabling off-heap at 25% of executor memory for untracked Python subprocess + Arrow buffer usage
+
+### Analysis accuracy
+- Health score now consolidates root-cause clusters before scoring (issues linked via relatedIds count as one toward health deduction, not independently)
+- JoinAnalyzer + SkewAnalyzer savings are now capped at SQL execution duration (prevents inflated estimates when network-based penalties exceed query wall-clock time)
+- SpeculationAnalyzer now detects non-idempotent write stages (insertInto, .write., SaveAsTable) and escalates to Critical when speculation fires on them (risk of duplicate rows)
+- ExecutorSizingAnalyzer now excludes single-task stages (coalesce(1), repartition(1)) from memory sizing when multi-task stages exist (prevents inflation from full-dataset single-task stages)
+
+### Report improvements
+- HTML report now includes an interactive bar chart of top issues by estimated savings
+- Priority fixes now show up to 20 issues by default (was 3, configurable via spark.sparklens.report.maxPriorityFixes)
+- Text report shows "likely shares root cause with:" note for issues that share affected stages
+
+### Configuration
+- Added spark.sparklens.timeline.stageGapWarnMs (default 10000 ms) — threshold for intra-job driver idle gaps between stages
+- Added spark.sparklens.sizing.gcWarnCoresFraction (default 0.15) — GC fraction threshold for core-reduction recommendation
+- Added spark.sparklens.report.maxPriorityFixes (default 20) — configurable priority fixes limit in text report
+
+### New checks
+- **config-parallelism-mismatch** — warns when spark.default.parallelism and spark.sql.shuffle.partitions differ by >2×
+- **driver-stage-gap** — warns on intra-job driver idle time >10s between consecutive stages within the same job
+
+### Documentation
+- CLAUDE.md updated with current analyzer count (28, not 21)
+- GitHub wiki expanded from 6 to 7 pages with full analyzer reference and troubleshooting guide
+- README updated with logo and current version references
+- Added HTML report logo (SparkLens brand embedded in self-contained reports)
+
+### Internal
+- Added RootCauseClusters union-find in Reporter trait for health score consolidation
+- Added relatedIds field to Issue model for root-cause linking
+- Analyzers.linkRelated() post-processing computes related-issue clusters based on shared affected stages and estimated impact
+
+---
+
 ## [1.2.0] — 2026-06-03
 
 ### New analyzers (3)

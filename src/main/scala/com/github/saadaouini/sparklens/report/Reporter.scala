@@ -9,15 +9,37 @@ trait Reporter {
   def write(app: SparkAppModel, issues: Seq[Issue], path: Option[String]): Unit
 
   protected def healthScore(issues: Seq[Issue]): Int = {
-    // Linear deduction, no per-category caps, floored at 0.
-    // Critical: −30 pts  (1 critical → 70, 3 criticals → 10)
-    // Warning:  −10 pts  (5 warnings → 50)
-    // Info:      −2 pts  (5 info     → 90)
-    // Caps produced misleading results where 4+ Criticals looked identical to 1 Critical.
-    val deduct = issues.count(_.severity.order == 0) * 30 +
-                 issues.count(_.severity.order == 1) * 10 +
-                 issues.count(_.severity.order == 2) * 2
+    // Collapse issues sharing a root cause (linked via relatedIds) into clusters
+    // before scoring. Fixing one root cause typically resolves all issues in a
+    // cluster — scoring them independently inflates the penalty for single-cause
+    // scenarios (e.g. coalesce(1) causing spill + low-CPU + single-task).
+    // Critical: −30 pts, Warning: −10 pts, Info: −2 pts, floored at 0.
+    val representative = rootCauseClusters(issues)
+    val deduct = representative.count(_.severity.order == 0) * 30 +
+                 representative.count(_.severity.order == 1) * 10 +
+                 representative.count(_.severity.order == 2) * 2
     math.max(0, 100 - deduct)
+  }
+
+  // Union-find: groups issues sharing relatedIds into connected components and
+  // returns one representative per cluster (the most severe issue in the cluster).
+  private def rootCauseClusters(issues: Seq[Issue]): Seq[Issue] = {
+    if (issues.isEmpty) return issues
+    val parent = scala.collection.mutable.Map(issues.map(i => i.id -> i.id): _*)
+    def find(x: String): String = {
+      val p = parent.getOrElse(x, x)
+      if (p == x) x else { val r = find(p); parent(x) = r; r }
+    }
+    def union(a: String, b: String): Unit = {
+      val ra = find(a); val rb = find(b)
+      if (ra != rb) parent(ra) = rb
+    }
+    issues.foreach { i =>
+      i.relatedIds.filter(parent.contains).foreach(union(i.id, _))
+    }
+    issues.groupBy(i => find(i.id)).values
+      .map(cluster => cluster.minBy(_.severity.order))
+      .toSeq
   }
 
   protected def writeOrPrint(content: String, path: Option[String]): Unit =

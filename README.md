@@ -13,7 +13,7 @@ Zero-config Spark performance analyzer. Attach via `spark.extraListeners` — ge
 
 ```bash
 spark-submit \
-  --packages io.github.nidhal-saadaoui:spark-lens_2.12:1.2.0 \
+  --packages io.github.nidhal-saadaoui:spark-lens_2.12:1.4.0 \
   --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
   --conf spark.sparklens.output=text \
   myJob.jar
@@ -136,7 +136,7 @@ Fail the Spark application itself if critical issues are found:
 
 ```bash
 spark-submit \
-  --packages io.github.nidhal-saadaoui:spark-lens_2.12:1.2.0 \
+  --packages io.github.nidhal-saadaoui:spark-lens_2.12:1.4.0 \
   --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
   --conf spark.sparklens.fail.on=critical \
   myJob.jar
@@ -168,7 +168,7 @@ The JSON schema is stable and suitable for CI parsers or dashboards:
 
 ```json
 {
-  "spark_lens_version": "1.2.0",
+  "spark_lens_version": "1.4.0",
   "app_id": "app-20241105-0042",
   "app_name": "daily-user-aggregation",
   "spark_version": "3.5.0",
