@@ -59,6 +59,13 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
   //         → spark.sparklens.report.path + .<ext>  (when multiple formats active)
   //         → spark.sparklens.report.path            (when single format, for compat)
   //         → None (stdout / logger)
+  //
+  // Supported placeholders (resolved at app end when the model is available):
+  //   {app_id}        → Spark application ID  (e.g. application_1234_0001)
+  //   {app_name}      → application name with spaces replaced by underscores
+  //   {spark_version} → Spark version string  (e.g. 3.5.1)
+  //   {date}          → UTC date at report time (YYYY-MM-DD)
+  //   {timestamp}     → Unix timestamp in seconds
 
   private val basePath: Option[String] = conf.getOption("spark.sparklens.report.path")
 
@@ -67,10 +74,28 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
     perFormat.orElse {
       basePath.map { base =>
         val activeNonOff = outputFormats - "off"
-        if (activeNonOff.size <= 1) base               // single format: use path as-is
-        else s"$base.${extensionFor(format)}"           // multi-format: append extension
+        if (activeNonOff.size <= 1) base
+        else s"$base.${extensionFor(format)}"
       }
     }
+  }
+
+  private def resolvePlaceholders(path: String, app: model.SparkAppModel): String = {
+    val date = new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date())
+    val ts   = System.currentTimeMillis() / 1000
+    val safe = (s: String) => s.replaceAll("[^a-zA-Z0-9._-]", "_")
+    // Support both {token} and ${token} so users can write either form
+    path
+      .replace("${app_id}",        app.appId)
+      .replace("{app_id}",         app.appId)
+      .replace("${app_name}",      safe(app.appName))
+      .replace("{app_name}",       safe(app.appName))
+      .replace("${spark_version}", safe(app.sparkVersion))
+      .replace("{spark_version}",  safe(app.sparkVersion))
+      .replace("${date}",          date)
+      .replace("{date}",           date)
+      .replace("${timestamp}",     ts.toString)
+      .replace("{timestamp}",      ts.toString)
   }
 
   private def extensionFor(format: String): String = format match {
@@ -172,7 +197,7 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
     app:    model.SparkAppModel,
     issues: Seq[model.Issue],
   ): Unit = {
-    val path = pathFor(format)
+    val path = pathFor(format).map(resolvePlaceholders(_, app))
     format match {
       case "json" => JsonReporter.write(app, issues, path)
       case "html" => HtmlReporter.write(app, issues, path)
