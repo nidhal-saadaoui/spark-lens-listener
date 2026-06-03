@@ -180,15 +180,16 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
         if (path.isDefined) {
           LogReporter.write(app, issues, path)
         } else {
-          // No path → write through SLF4J so lines appear inline in the driver log
-          // with the same format, timestamp, and appenders as the rest of Spark's output.
-          // SLF4J is always on the Spark driver classpath; going direct avoids the
-          // JUL-to-SLF4J bridge which was filtering our logger namespace.
+          // No path → write through SLF4J (same pipeline as Spark, correct format)
+          // then flush stdout. SLF4J goes through log4j/logback appenders which may
+          // be draining at application end — the flush ensures the lines are captured
+          // by log collectors (YARN, K8s, Databricks) before the process exits.
           import java.util.logging.Level.{WARNING => JUL_WARN}
           LogReporter.renderLines(app, issues).foreach {
             case (JUL_WARN, line) => log.warn(line)
             case (_,        line) => log.info(line)
           }
+          System.out.flush()
         }
       case _ => TextReporter.write(app, issues, path)
     }
