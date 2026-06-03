@@ -6,6 +6,8 @@ import org.scalatest.matchers.should.Matchers
 
 import java.nio.file.Files
 
+
+
 class ReporterSpec extends AnyFlatSpec with Matchers {
 
   private def baseApp: SparkAppModel = SparkAppModel(
@@ -257,6 +259,47 @@ class ReporterSpec extends AnyFlatSpec with Matchers {
     val html = HtmlReporter.render(baseApp, Seq(issue()))
     val styleSection = html.split("<style>").lift(1).flatMap(_.split("</style>").headOption).getOrElse("")
     styleSection should not include "http"
+  }
+
+  // ── JsonReporter.total_estimated_savings_ms — deduplication ─────────────────
+
+  "JsonReporter.total_estimated_savings_ms" should "use cluster max, not sum, for related issues" in {
+    // i1 and i2 are related (bidirectional relatedIds): same root cause on stage 1.
+    // Naive sum = 30000 + 20000 = 50000; deduplicated max = 30000.
+    val i1 = issue(id = "spill-1").copy(
+      affectedStages  = Seq(1),
+      relatedIds      = Seq("cpu-1"),
+      estimatedImpact = Some(EstimatedImpact("s", Some(30000L), None, "medium")))
+    val i2 = issue(id = "cpu-1").copy(
+      affectedStages  = Seq(1),
+      relatedIds      = Seq("spill-1"),
+      estimatedImpact = Some(EstimatedImpact("s", Some(20000L), None, "medium")))
+    JsonReporter.render(baseApp, Seq(i1, i2)) should include(""""total_estimated_savings_ms": 30000""")
+  }
+
+  it should "sum savings when issues are in different clusters" in {
+    val i1 = issue(id = "spill-1").copy(
+      affectedStages  = Seq(1),
+      estimatedImpact = Some(EstimatedImpact("s", Some(30000L), None, "medium")))
+    val i2 = issue(id = "cpu-2").copy(
+      affectedStages  = Seq(2),
+      estimatedImpact = Some(EstimatedImpact("s", Some(20000L), None, "medium")))
+    // Two independent issues: sum = 50000, capped at app duration (60s = 60000ms) → 50000
+    JsonReporter.render(baseApp, Seq(i1, i2)) should include(""""total_estimated_savings_ms": 50000""")
+  }
+
+  it should "cap total at app duration" in {
+    // app duration = 60s; both independent with large savings each
+    val i1 = issue(id = "a-1").copy(
+      estimatedImpact = Some(EstimatedImpact("s", Some(40000L), None, "medium")))
+    val i2 = issue(id = "b-1").copy(
+      estimatedImpact = Some(EstimatedImpact("s", Some(40000L), None, "medium")))
+    // Sum = 80000 > 60000 (app duration) → capped at 60000
+    JsonReporter.render(baseApp, Seq(i1, i2)) should include(""""total_estimated_savings_ms": 60000""")
+  }
+
+  it should "return null when no issue has savings" in {
+    JsonReporter.render(baseApp, Seq(issue())) should include(""""total_estimated_savings_ms": null""")
   }
 
   // ── writeOrPrint local path ───────────────────────────────────────────────

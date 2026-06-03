@@ -59,4 +59,62 @@ class TextReporterSpec extends AnyFlatSpec with Matchers {
     val output = TextReporter.renderString(app(), Seq(issue))
     output should include("of app time")
   }
+
+  // ── Priority fixes — root-cause cluster deduplication ───────────────────────
+
+  it should "collapse a 3-issue cluster into one priority fix entry with (+2 covered) suffix" in {
+    val i1 = issueWithSavings("spill-1", 30000L).copy(
+      affectedStages = Seq(1), relatedIds = Seq("cpu-1", "parallelism-1"))
+    val i2 = issueWithSavings("cpu-1", 20000L).copy(
+      affectedStages = Seq(1), relatedIds = Seq("spill-1", "parallelism-1"))
+    val i3 = issueWithSavings("parallelism-1", 15000L).copy(
+      affectedStages = Seq(1), relatedIds = Seq("spill-1", "cpu-1"))
+    val output = TextReporter.renderString(app(), Seq(i1, i2, i3))
+    val priorityLines = output.linesIterator
+      .filter(l => l.trim.matches("""\d+\. \[.*"""))
+      .toSeq
+    priorityLines should have size 1
+    priorityLines.head should include("(+2 covered)")
+  }
+
+  it should "show separate entries for issues in different clusters" in {
+    val i1 = issueWithSavings("spill-1", 30000L).copy(affectedStages = Seq(1))
+    val i2 = issueWithSavings("skew-2", 20000L).copy(affectedStages = Seq(2))
+    val output = TextReporter.renderString(app(), Seq(i1, i2))
+    val priorityLines = output.linesIterator
+      .filter(l => l.trim.matches("""\d+\. \[.*"""))
+      .toSeq
+    priorityLines should have size 2
+    output should not include "(+1 covered)"
+  }
+
+  it should "show the highest-savings issue as the representative when collapsing a cluster" in {
+    // i1 has highest savings: should be the representative shown in the list
+    val i1 = issueWithSavings("spill-1", 30000L).copy(
+      affectedStages = Seq(1), relatedIds = Seq("cpu-1"))
+    val i2 = issueWithSavings("cpu-1", 5000L).copy(
+      affectedStages = Seq(1), relatedIds = Seq("spill-1"))
+    val output = TextReporter.renderString(app(), Seq(i1, i2))
+    val priorityLines = output.linesIterator
+      .filter(l => l.trim.matches("""\d+\. \[.*"""))
+      .toSeq
+    priorityLines should have size 1
+    priorityLines.head should include("Issue spill-1")
+  }
+
+  // ── SparkLens overhead footer ─────────────────────────────────────────────
+
+  it should "show overhead footer when listenerStats has task events" in {
+    import com.github.saadaouini.sparklens.model.ListenerStats
+    val appWithStats = app().copy(listenerStats = ListenerStats(2500000L, 340L))
+    val output = TextReporter.renderString(appWithStats, Nil)
+    output should include("SparkLens:")
+    output should include("M task events")
+    output should include("340ms listener overhead")
+  }
+
+  it should "omit overhead footer when no task events were processed" in {
+    val output = TextReporter.renderString(app(), Nil)
+    output should not include "SparkLens:"
+  }
 }

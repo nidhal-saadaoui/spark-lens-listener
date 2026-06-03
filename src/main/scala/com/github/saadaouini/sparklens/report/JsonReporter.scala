@@ -60,10 +60,7 @@ object JsonReporter extends Reporter {
       .toSeq
       .sortBy(a => (-a.resolves.size, -a.savedMs.getOrElse(0L)))
 
-    val totalSavingsMs: Option[Long] = {
-      val vals = issues.flatMap(_.estimatedImpact.flatMap(_.savedTimeMs))
-      if (vals.nonEmpty) Some(vals.sum) else None
-    }
+    val totalSavingsMs: Option[Long] = deduplicatedSavingsMs(issues, app.durationMs)
 
     val topActionsJson = topActions.map { a =>
       val ids      = a.resolves.map(id => s""""${esc(id)}"""").mkString(", ")
@@ -92,9 +89,12 @@ object JsonReporter extends Reporter {
          |  }""".stripMargin
     }.mkString(",\n  ")
 
-    val totalMs = totalSavingsMs.map(_.toString).getOrElse("null")
+    val totalMs    = totalSavingsMs.map(_.toString).getOrElse("null")
     val topActPart = if (topActions.isEmpty) "[]"
                      else s"[\n    $topActionsJson\n  ]"
+    val statsField = if (app.listenerStats.taskEventsProcessed > 0)
+      s""",\n  "listener_overhead_ms": ${app.listenerStats.overheadMs}"""
+    else ""
 
     // Schema: see https://github.com/nidhal-saadaoui/spark-lens-listener/blob/main/docs/report-schema.md
     s"""{
@@ -107,7 +107,7 @@ object JsonReporter extends Reporter {
        |  "issue_count": ${issues.size},
        |  "total_estimated_savings_ms": $totalMs,
        |  "top_actions": $topActPart,
-       |  "issues": [$issueJson]
+       |  "issues": [$issueJson]$statsField
        |}""".stripMargin
   }
 }

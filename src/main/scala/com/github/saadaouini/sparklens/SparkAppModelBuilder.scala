@@ -49,6 +49,11 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
   // Percentile/distribution analysis uses the sample; totals come from StageSummary.
   private val MaxSampledTasksPerStage = 10000
 
+  // Listener self-timing: measures wall-clock time SparkLens spends inside onTaskEnd
+  // (the hot path). Values are accumulated in nanos and converted to ms at build() time.
+  private var listenerTaskNanos: Long = 0L
+  private var listenerTaskCount: Long = 0L
+
   private class StageSummary {
     var taskCount:                    Int  = 0
     var failedCount:                  Int  = 0
@@ -175,6 +180,7 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
 
   def onTaskEnd(e: SparkListenerTaskEnd): Unit = {
     if (e.taskInfo == null || e.taskMetrics == null) return
+    val t0      = System.nanoTime()
     val info    = e.taskInfo
     val metrics = e.taskMetrics
     val shufR   = metrics.shuffleReadMetrics
@@ -278,6 +284,9 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
       val j = scala.util.Random.nextInt(n)
       if (j < MaxSampledTasksPerStage) buf(j) = task
     }
+
+    listenerTaskNanos += System.nanoTime() - t0
+    listenerTaskCount += 1
   }
 
   def onStageCompleted(e: SparkListenerStageCompleted): Unit = {
@@ -442,6 +451,10 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
       stages          = latestStages,
       executors       = executors.toMap,
       sqlExecutions   = sqlExecutions.toMap,
+      listenerStats   = model.ListenerStats(
+        taskEventsProcessed = listenerTaskCount,
+        overheadMs          = listenerTaskNanos / 1000000L,
+      ),
     )
   }
 }

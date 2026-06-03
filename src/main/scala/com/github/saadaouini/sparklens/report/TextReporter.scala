@@ -47,25 +47,33 @@ object TextReporter extends Reporter {
 
     if (issues.isEmpty) {
       sb.append("  ✔  No issues detected.\n")
+      appendOverheadFooter(sb, app)
       sb.append("=" * 70).append("\n\n")
       return sb.toString()
     }
 
     // ── Priority Issues — top N by estimated savings ──────────────────────────
-    // Sort by absolute savings so the most impactful fix leads, regardless of severity.
-    // Configurable via spark.sparklens.report.maxPriorityFixes (default 5).
+    // Issues linked by relatedIds (same root cause) are collapsed into one entry
+    // with a "(+N covered)" suffix — the root fix appears once, not N times.
+    // Configurable via spark.sparklens.report.maxPriorityFixes (default 20).
     val maxPriority = app.prop("spark.sparklens.report.maxPriorityFixes")
       .flatMap(s => scala.util.Try(s.toInt).toOption).getOrElse(20)
-    val ranked = issues
-      .filter(i => i.estimatedImpact.flatMap(_.savedTimeMs).exists(_ >= 1000L))
-      .sortBy(i => -i.estimatedImpact.flatMap(_.savedTimeMs).getOrElse(0L))
-      .take(maxPriority)
-    if (ranked.nonEmpty) {
+    val withSavings = issues.filter(_.estimatedImpact.flatMap(_.savedTimeMs).exists(_ >= 1000L))
+    val clusteredRanked: Seq[(Issue, Int)] =
+      issueClusterGroups(withSavings)
+        .map { cluster =>
+          val sorted   = cluster.sortBy(i => -i.estimatedImpact.flatMap(_.savedTimeMs).getOrElse(0L))
+          (sorted.head, sorted.size - 1)
+        }
+        .sortBy { case (issue, _) => -issue.estimatedImpact.flatMap(_.savedTimeMs).getOrElse(0L) }
+        .take(maxPriority)
+    if (clusteredRanked.nonEmpty) {
       sb.append("\n  Priority fixes (estimated savings per run):\n")
-      ranked.zipWithIndex.foreach { case (issue, idx) =>
+      clusteredRanked.zipWithIndex.foreach { case ((issue, covered), idx) =>
         val saving = issue.estimatedImpact.flatMap(_.savedTimeMs)
           .map(ms => s"  ~${msLabel(ms)}${pctOfApp(ms)}").getOrElse("")
-        sb.append(s"  ${idx + 1}. [${issue.severity.label}] ${issue.title.take(65)}$saving\n")
+        val coveredSuffix = if (covered > 0) s"  (+$covered covered)" else ""
+        sb.append(s"  ${idx + 1}. [${issue.severity.label}] ${issue.title.take(60)}$saving$coveredSuffix\n")
       }
       sb.append("\n")
     }
@@ -199,8 +207,25 @@ object TextReporter extends Reporter {
       }
     }
 
+    appendOverheadFooter(sb, app)
+
     sb.append("\n")
     sb.append("=" * 70).append("\n\n")
     sb.toString()
+  }
+
+  private def appendOverheadFooter(sb: StringBuilder, app: SparkAppModel): Unit = {
+    val stats = app.listenerStats
+    if (stats.taskEventsProcessed > 0) {
+      val n       = stats.taskEventsProcessed
+      val taskStr = if (n >= 1000000L) f"${n / 1000000.0}%.1fM"
+                    else if (n >= 1000L) f"${n / 1000.0}%.1fK"
+                    else s"$n"
+      val pctPart = app.durationMs.filter(_ > 0).flatMap { dur =>
+        val pct = stats.overheadMs.toDouble / dur * 100
+        if (pct >= 0.1) Some(f"  ($pct%.1f%% of app time)") else None
+      }.getOrElse("")
+      sb.append(s"\n  SparkLens: $taskStr task events · ${stats.overheadMs}ms listener overhead$pctPart\n")
+    }
   }
 }

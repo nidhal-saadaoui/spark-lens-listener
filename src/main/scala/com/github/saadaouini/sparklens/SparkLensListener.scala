@@ -172,6 +172,17 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
     if (activeFormats.isEmpty && failOn.isEmpty) return
 
     val app    = builder.build(e.time)
+    val stats  = app.listenerStats
+    if (stats.taskEventsProcessed > 0) {
+      app.durationMs.foreach { dur =>
+        val fraction = stats.overheadMs.toDouble / dur
+        if (fraction > 0.05)
+          log.warn(
+            s"spark-lens listener overhead is ${(fraction * 100).round}% of app duration " +
+            s"(${stats.overheadMs}ms processing ${stats.taskEventsProcessed} task events on driver). " +
+            s"On high-task-count jobs consider disabling spark-lens or sampling fewer stages.")
+      }
+    }
     val issues = Analyzers.runAll(app)
 
     activeFormats.foreach { format =>
