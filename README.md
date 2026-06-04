@@ -11,15 +11,17 @@ Zero-config Spark performance analyzer. Attach via `spark.extraListeners` — ge
 
 ## Usage
 
+Check the [Maven Central badge](https://mvnrepository.com/artifact/io.github.nidhal-saadaoui/spark-lens) above for the latest version, then:
+
 ```bash
 spark-submit \
-  --packages io.github.nidhal-saadaoui:spark-lens_2.12:1.4.0 \
+  --packages io.github.nidhal-saadaoui:spark-lens_2.12:LATEST_VERSION \
   --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
   --conf spark.sparklens.output=text \
   myJob.jar
 ```
 
-That's it. At application end, a report appears in the driver stdout.
+Replace `LATEST_VERSION` with the version shown in the Maven badge. At application end, a report appears in the driver stdout.
 
 > **Note:** `spark.extraListeners=` **replaces** any existing listener list. To append
 > spark-lens alongside another listener, comma-separate them:
@@ -139,7 +141,7 @@ Fail the Spark application itself if critical issues are found:
 
 ```bash
 spark-submit \
-  --packages io.github.nidhal-saadaoui:spark-lens_2.12:1.4.0 \
+  --packages io.github.nidhal-saadaoui:spark-lens_2.12:LATEST_VERSION \
   --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
   --conf spark.sparklens.fail.on=critical \
   myJob.jar
