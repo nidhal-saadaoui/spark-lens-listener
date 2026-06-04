@@ -235,29 +235,37 @@
       </div>
       <div class="terminal-body"><span class="t-eq">======================================================================</span>
   spark-lens  |  <span class="t-app">daily-revenue-pipeline</span>  (app-20241105-0042)
-  Spark 3.5.0   |  Health: <span class="t-score">64/100</span>  |  1 critical  ·  3 warning  ·  2 info
+  Spark 3.5.0   |  Duration: 8.4min  |  Health: <span class="t-score">64/100</span>  |  1 critical  ·  2 warning  ·  2 info
 <span class="t-eq">======================================================================</span>
 
   Priority fixes (estimated savings per run):
-  1. [<span class="t-crit">Critical</span>] Disk Spill in Stage 3 [+2 more stages]<span class="t-save">  ~4.2min</span>
-  2. [<span class="t-warn">Warning</span>]  Data Skew in Stage 5<span class="t-save">  ~1.8min</span>
-  3. [<span class="t-warn">Warning</span>]  Java Serializer in Use — Switch to Kryo<span class="t-save">  ~45s</span>
+  1. [<span class="t-crit">CRITICAL</span>] Disk Spill in Stage 3 — 2.1 GB spilled [+2 more stages]<span class="t-save">  ~4.2min  (50% of app time)</span>
+  2. [<span class="t-warn">WARNING</span>]  Shuffle Hot-Key Skew in Stage 5<span class="t-save">  ~1.8min  (21% of app time)</span>
+  3. [<span class="t-warn">WARNING</span>]  Java Serializer in Use — Switch to Kryo<span class="t-save">  ~45s</span>
 
   [<span class="t-crit">✖ CRITICAL</span>]  Disk Spill in Stage 3 — 2.1 GB spilled [+2 more stages]<span class="t-save">  (~4.2min per run)</span>
     fix:   spark.executor.memory=8g
-           # or reduce cores to lower concurrent peak demand:
-           # spark.executor.cores=2
-       Stage 3 spilled 2.1 GB to disk. Disk I/O is 10–100× slower than RAM.
+       Stage 3 spilled 2.1 GB to disk. Disk I/O is 10–100× slower than memory.
     stages: 3, 7, 11
+  <span class="t-dim">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</span>
 
-  [<span class="t-warn">⚠ WARNING</span>]  Data Skew in Stage 5<span class="t-save">  (~1.8min per run)</span>
+  [<span class="t-warn">⚠ WARNING</span>]  Shuffle Hot-Key Skew in Stage 5<span class="t-save">  (~1.8min per run)</span>
     fix:   spark.sql.adaptive.skewJoin.enabled=true
-       Top-5% of tasks hold 67% of stage time. Shuffle skew detected.
+       Top-5% of tasks hold 67% of stage time.
     stages: 5
+  <span class="t-dim">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</span>
 
   [<span class="t-warn">⚠ WARNING</span>]  Java Serializer in Use — Switch to Kryo<span class="t-save">  (~45s per run)</span>
     fix:   spark.serializer=org.apache.spark.serializer.KryoSerializer
-       Java serialization is 10× slower than Kryo.
+       Java serialization is 10× slower than Kryo and produces larger shuffle bytes.
+  <span class="t-dim">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</span>
+
+  <span class="t-eq">──────────────────────────────────────────────────────────────────</span>
+  Quick wins
+    spark.executor.memory=8g
+       resolves 1 issue: spill
+    spark.sql.adaptive.enabled=true
+       resolves 2 issues: config-aqe-disabled, config-default-shuffle-partitions
 
 <span class="t-eq">======================================================================</span></div>
     </div>
