@@ -108,6 +108,9 @@ on large pipelines.
 | PartitionImbalanceAnalyzer | io | p95/p50 input partition size ratio > 3× — high-variance input partition sizes slow the stage (fat partitions become the bottleneck) |
 | SchedulerDelayAnalyzer | config | Median task launch delay > 2 s after stage submission — tasks waiting idle before first execution |
 | CriticalPathAnalyzer | plan | DAG critical path (via parentIds) ≥ 85% of app wall time across ≥ 3 sequential stages — serial dependency chain means adding executors won't help |
+| DynamicAllocationAnalyzer | config | DA misconfiguration: shuffle tracking disabled, vmem ratio too low, peak executor count hitting maxExecutors ceiling |
+| YarnAnalyzer | reliability | YARN-specific: vmem OOM (exit 137), disk-full task failures, DA scale-up lag after idle gaps |
+| ScalingSimulatorAnalyzer | scaling | Replays the stage DAG at 0.5×, 2×, 3×, 4× executor counts; detects when the DA `maxExecutors` ceiling is the binding constraint and projects savings from raising it |
 
 ## Configuration
 

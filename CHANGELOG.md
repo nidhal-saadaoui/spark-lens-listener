@@ -5,6 +5,37 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.5.0] — 2026-06-04
+
+### New analyzer: ScalingSimulatorAnalyzer
+Answers "how much would more executors help?" from a single run — closes the main gap vs Qubole Sparklens.
+
+- Replays the stage DAG (topological order) at 0.5×, 2×, 3×, 4× current executor count
+- Avg task duration = `totalExecutorRunTimeMs / taskCount`; calibrated so sim@actual ≈ real wall-clock
+- Skewed stages use p95 task duration (straggler sets the floor regardless of parallelism)
+- Detects when dynamic-allocation `maxExecutors` ceiling was binding (peak ≥ 90% of cap) → **Warning** + `configFix: spark.dynamicAllocation.maxExecutors=<2×>`
+- Reports `serial_floor_pct`: fraction of app time locked in serial stage dependencies (limiting factor on scaling beyond a certain point)
+- `model_confidence: low` emitted when calibration factor > 2.5× (unmodelled driver/shuffle overhead dominates)
+- Diminishing-returns note when 2× → 4× executors yields < 15% additional improvement
+- `estimatedImpact.savedTimeMs` = projected saving at 2× executors (used for priority-fix ranking)
+
+Sample output:
+```
+actual  (20 exec)        24.3m
+sim     (10 exec, 0.5×)  ~38.1m  (+57%)
+sim     (40 exec, 2×)    ~14.1m  (-42%)
+sim     (60 exec, 3×)    ~11.8m  (-51%)
+sim     (80 exec, 4×)    ~11.2m  (-54%)
+serial_floor_pct         38.2
+model_confidence         medium
+```
+
+### Internal
+- Added `StageData.totalTaskCount` computed property (follows existing `hasExactAggregates` pattern)
+- Analyzer count: 29 (was 28)
+
+---
+
 ## [1.4.1] — 2026-06-03
 
 ### Listener overhead measurement
