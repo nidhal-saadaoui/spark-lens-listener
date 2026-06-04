@@ -7,6 +7,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [1.5.0] — 2026-06-04
 
+### Interactive HTML dashboard with performance timelines
+Enhanced `HtmlReporter` output with six self-contained SVG-based visualizations:
+
+1. **Metrics Summary Panel** — Health score, critical/warning/info counts, plus key metrics: total duration, peak executor memory, total shuffle bytes, GC time
+2. **Stage Timeline** — Gantt-style chart showing stage execution duration with color coding: red if GC > 10% of stage time, orange if disk spill detected, blue otherwise. Enables visual correlation of problems with when they occur
+3. **Memory Pressure Timeline** — Line chart tracking executor peak memory evolution throughout the job, highlighting memory pressure peaks
+4. **Shuffle Metrics Breakdown** — Stacked horizontal bar chart comparing input bytes (blue) vs shuffle output bytes (red) per shuffle stage, useful for identifying data expansion/reduction patterns
+5. **GC Timeline** — Bar chart showing GC pause duration at stage boundaries, color-coded by impact (red >20%, orange >10%, blue normal). Includes hover tooltips with duration and percentage overhead
+6. **Issue Severity Timeline** — Timeline showing when critical (red) vs warning (amber) issues occur in the job, mapped to affected stages for visual correlation with execution timeline
+
+All visualizations:
+- Are self-contained SVG with no external dependencies or JavaScript
+- Scale dynamically to data ranges (no hardcoded min/max values)
+- Include native SVG tooltips (via `<title>` elements) for hover inspection
+- Gracefully omit themselves if no relevant data exists (e.g., no GC events → no GC timeline)
+- Use a Tailwind-inspired color palette (red #dc2626, amber #f59e0b, blue #2563eb)
+
 ### New analyzer: ScalingSimulatorAnalyzer
 Answers "how much would more executors help?" from a single run — closes the main gap vs Qubole Sparklens.
 

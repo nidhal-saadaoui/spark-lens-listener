@@ -151,16 +151,36 @@ Exit code is non-zero if critical issues are detected — CI pipeline fails auto
 
 ## Write a report file
 
+### Text format
+```bash
+--conf spark.sparklens.output=text \
+--conf spark.sparklens.report.path=/tmp/spark-lens-report.txt
+```
+
+### Interactive HTML dashboard
 ```bash
 --conf spark.sparklens.output=html \
 --conf spark.sparklens.report.path=/tmp/spark-lens-report.html
 ```
 
+The HTML report includes an interactive dashboard with four performance timeline visualizations:
+
+1. **Metrics Summary Panel**: Health score, critical/warning/info counts, duration, peak memory, shuffle bytes, GC time
+2. **Stage Timeline**: Gantt-style chart showing stage execution with color coding (red = high GC%, orange = spill, blue = normal)
+3. **Memory Pressure Timeline**: Line chart tracking executor peak memory evolution throughout the job
+4. **Shuffle Metrics Breakdown**: Stacked bar chart comparing input vs output bytes per shuffle stage
+5. **GC Timeline**: Bar chart showing GC pause duration by stage, color-coded by GC overhead percentage
+6. **Issue Severity Timeline**: Timeline showing when critical/warning issues occur in the job
+
+All visualizations are self-contained SVG, require no JavaScript, and include hover tooltips (via native `<title>` elements).
+
+### JSON format
 ```bash
 --conf spark.sparklens.output=json \
 --conf spark.sparklens.report.path=hdfs:///user/spark/reports/myapp.json
 ```
 
+### Multiple formats
 To write multiple formats in one run with separate destinations:
 
 ```bash
