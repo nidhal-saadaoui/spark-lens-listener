@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>spark-lens — Zero-config Spark Performance Analyzer</title>
+<link rel="icon" type="image/png" href="logo.png">
+<link rel="apple-touch-icon" href="logo.png">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0 }
   html { scroll-behavior: smooth }
@@ -12,7 +14,8 @@
   /* ── nav ── */
   nav { position: sticky; top: 0; z-index: 100; background: rgba(15,23,42,.97); backdrop-filter: blur(8px); border-bottom: 1px solid #1e293b }
   .nav-inner { max-width: 1080px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; gap: 32px; height: 52px }
-  .nav-logo { color: #f8fafc; font-weight: 700; font-size: 15px; text-decoration: none; letter-spacing: -.3px }
+  .nav-logo { color: #f8fafc; font-weight: 700; font-size: 15px; text-decoration: none; letter-spacing: -.3px; display: flex; align-items: center; gap: 8px }
+  .nav-logo img { height: 24px; width: auto }
   .nav-logo span { color: #f97316 }
   .nav-links { display: flex; gap: 24px; margin-left: auto }
   .nav-links a { color: #94a3b8; text-decoration: none; font-size: 13px; font-weight: 500; transition: color .15s }
@@ -22,6 +25,7 @@
   /* ── hero ── */
   .hero { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 60%, #0f172a 100%); color: #f8fafc; padding: 96px 24px 80px }
   .hero-inner { max-width: 780px; margin: 0 auto; text-align: center }
+  .hero-logo { height: 72px; width: auto; margin-bottom: 28px; filter: drop-shadow(0 4px 24px rgba(249,115,22,.35)) }
   .hero-badge { display: inline-block; background: rgba(249,115,22,.15); border: 1px solid rgba(249,115,22,.4); color: #fb923c; font-size: 12px; font-weight: 600; padding: 4px 14px; border-radius: 20px; margin-bottom: 24px; letter-spacing: .5px }
   .hero h1 { font-size: clamp(32px, 5vw, 56px); font-weight: 800; line-height: 1.15; letter-spacing: -.5px; margin-bottom: 20px }
   .hero h1 span { color: #f97316 }
@@ -137,7 +141,7 @@
 
 <nav>
   <div class="nav-inner">
-    <a class="nav-logo" href="#"><span>spark</span>-lens</a>
+    <a class="nav-logo" href="#"><img src="logo.png" alt="spark-lens"><span>spark</span>-lens</a>
     <div class="nav-links">
       <a href="#how-it-works">How it works</a>
       <a href="#output">Report output</a>
@@ -152,16 +156,17 @@
 <!-- ── HERO ─────────────────────────────────────────────────────────────── -->
 <div class="hero">
   <div class="hero-inner">
+    <img src="logo.png" alt="spark-lens" class="hero-logo">
     <div class="hero-badge">Apache Spark 3.x · Scala 2.12 / 2.13</div>
     <h1>Zero-config Spark<br><span>performance analyzer</span></h1>
     <p>Attach via <code style="background:rgba(255,255,255,.1);padding:2px 7px;border-radius:4px;font-size:16px">spark.extraListeners</code> — get actionable recommendations in your logs at job end. No Python, no extra services, no code changes.</p>
     <div class="hero-cmd"><span class="prompt">$</span> <span class="hl">spark-submit</span> \
-  <span class="flag">--packages</span> <span class="val">io.github.nidhal-saadaoui:spark-lens_2.12:1.2.0</span> \
+  <span class="flag">--packages</span> <span class="val">io.github.nidhal-saadaoui:spark-lens_2.12:1.5.0</span> \
   <span class="flag">--conf</span> <span class="key">spark.extraListeners</span>=<span class="cls">com.github.saadaouini.sparklens.SparkLensListener</span> \
   <span class="flag">--conf</span> <span class="key">spark.sparklens.output</span>=<span class="val">text</span> \
   <span class="hl">myJob.jar</span></div>
     <div class="hero-pills">
-      <span class="pill-stat"><strong>26</strong> analyzers</span>
+      <span class="pill-stat"><strong>29</strong> analyzers</span>
       <span class="pill-stat"><strong>4</strong> output formats</span>
       <span class="pill-stat"><strong>40+</strong> configurable thresholds</span>
       <span class="pill-stat">Estimated savings per issue</span>
@@ -287,7 +292,7 @@
 <section id="analyzers">
   <div class="section-inner">
     <h2>What it detects</h2>
-    <p class="section-sub">26 analyzers covering skew, memory, I/O, query planning, configuration, and reliability — every issue includes an estimated savings figure.</p>
+    <p class="section-sub">29 analyzers covering skew, memory, I/O, query planning, configuration, reliability, and executor scaling — every issue includes an estimated savings figure.</p>
     <div class="analyzer-grid">
       <div class="analyzer-card">
         <div class="ac-header"><span class="ac-name">JobTimelineAnalyzer</span><span class="ac-cat cat-io">io</span></div>
@@ -430,7 +435,7 @@
         <h3 style="font-size:15px;font-weight:700;margin-bottom:10px">Fail on critical</h3>
         <div class="code-block" style="font-size:12px"><span class="cb-comment"># CI fails automatically — exit code non-zero</span>
 spark-submit \
-  <span class="cb-flag">--packages</span> <span class="cb-val">io.github.nidhal-saadaoui:spark-lens_2.12:1.2.0</span> \
+  <span class="cb-flag">--packages</span> <span class="cb-val">io.github.nidhal-saadaoui:spark-lens_2.12:1.5.0</span> \
   <span class="cb-flag">--conf</span> <span class="cb-val">spark.extraListeners=...SparkLensListener</span> \
   <span class="cb-flag">--conf</span> <span class="cb-val">spark.sparklens.fail.on=critical</span> \
   myJob.jar</div>
