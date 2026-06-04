@@ -161,12 +161,12 @@ jobs:
           grep -q "Consider Native Functions"            /tmp/spark-lens-report.txt
           # ── JSON report: check ALL issues (JSON is never filtered) ───────────
           # Info issues with low savings may be hidden in text to keep it readable;
-          # JSON always contains the full issue list.
-          grep -q '"Repeated Scan'                       /tmp/spark-lens-report.json
-          grep -q '"Broadcast Join Disabled'             /tmp/spark-lens-report.json
-          grep -q '"Skew'                                /tmp/spark-lens-report.json
-          grep -q '"Driver-Side Aggregation'             /tmp/spark-lens-report.json
-          grep -q '"Single-Task Stage'                   /tmp/spark-lens-report.json
+          # JSON always contains the full issue list. Search for title field values.
+          grep -q 'Repeated Scan'                        /tmp/spark-lens-report.json
+          grep -q 'Broadcast Join Disabled'              /tmp/spark-lens-report.json
+          grep -q 'Data Skew in Stage'                   /tmp/spark-lens-report.json
+          grep -q 'Driver-Side Aggregation\|CollectLimit' /tmp/spark-lens-report.json
+          grep -q 'Single-Task Stage'                    /tmp/spark-lens-report.json
           echo "All expected issues detected (text: Warning/Critical — JSON: all)."
 
       - name: Upload reports
