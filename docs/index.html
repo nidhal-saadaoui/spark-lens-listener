@@ -270,6 +270,45 @@
 <span class="t-eq">======================================================================</span></div>
     </div>
 
+    <h3 style="font-size:16px;font-weight:700;margin-bottom:12px;color:#374151">JSON report — stable schema for CI parsers and dashboards</h3>
+    <div class="terminal-wrap" style="margin-bottom:40px">
+      <div class="terminal-bar">
+        <div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div>
+        <span>report.json</span>
+      </div>
+      <div class="terminal-body"><span class="t-dim">{</span>
+  <span class="t-conf">"spark_lens_version"</span>: <span class="t-save">"1.5.0"</span>,
+  <span class="t-conf">"app_id"</span>:           <span class="t-save">"app-20241105-0042"</span>,
+  <span class="t-conf">"app_name"</span>:         <span class="t-save">"daily-revenue-pipeline"</span>,
+  <span class="t-conf">"spark_version"</span>:    <span class="t-save">"3.5.0"</span>,
+  <span class="t-conf">"duration_ms"</span>:      <span class="t-score">504000</span>,
+  <span class="t-conf">"health_score"</span>:     <span class="t-score">64</span>,
+  <span class="t-conf">"issue_count"</span>:      <span class="t-score">5</span>,
+  <span class="t-conf">"total_estimated_savings_ms"</span>: <span class="t-score">372000</span>,  <span class="t-dim">// deduplicated by root-cause cluster, capped at app duration</span>
+  <span class="t-conf">"top_actions"</span>: [
+    <span class="t-dim">{</span> <span class="t-conf">"config"</span>: <span class="t-save">"spark.executor.memory=8g"</span>,     <span class="t-conf">"resolves"</span>: [<span class="t-save">"spill"</span>],                              <span class="t-conf">"estimated_savings_ms"</span>: <span class="t-score">252000</span> <span class="t-dim">}</span>,
+    <span class="t-dim">{</span> <span class="t-conf">"config"</span>: <span class="t-save">"spark.sql.adaptive.enabled=true"</span>, <span class="t-conf">"resolves"</span>: [<span class="t-save">"config-aqe-disabled"</span>, <span class="t-save">"skew-warn"</span>], <span class="t-conf">"estimated_savings_ms"</span>: <span class="t-score">108000</span> <span class="t-dim">}</span>
+  ],
+  <span class="t-conf">"issues"</span>: [
+    <span class="t-dim">{</span>
+      <span class="t-conf">"id"</span>:             <span class="t-save">"spill"</span>,
+      <span class="t-conf">"severity"</span>:       <span class="t-crit">"critical"</span>,
+      <span class="t-conf">"category"</span>:       <span class="t-save">"spill"</span>,
+      <span class="t-conf">"title"</span>:          <span class="t-save">"Disk Spill in Stage 3 — 2.1 GB spilled [+2 more stages]"</span>,
+      <span class="t-conf">"description"</span>:    <span class="t-save">"Stage 3 spilled 2.1 GB to disk."</span>,
+      <span class="t-conf">"recommendation"</span>: <span class="t-save">"Increase executor memory or reduce concurrent task count."</span>,
+      <span class="t-conf">"fixes"</span>:          <span class="t-dim">{</span> <span class="t-conf">"config"</span>: <span class="t-save">"spark.executor.memory=8g"</span> <span class="t-dim">}</span>,
+      <span class="t-conf">"affected_stages"</span>: [<span class="t-score">3</span>, <span class="t-score">7</span>, <span class="t-score">11</span>],
+      <span class="t-conf">"affected_jobs"</span>:   [],
+      <span class="t-conf">"metrics"</span>: <span class="t-dim">{</span> <span class="t-conf">"disk_spill_bytes"</span>: <span class="t-save">"2.1 GB"</span>, <span class="t-conf">"stages_affected"</span>: <span class="t-save">"3"</span> <span class="t-dim">}</span>,
+      <span class="t-conf">"estimated_impact"</span>: <span class="t-dim">{</span> <span class="t-conf">"summary"</span>: <span class="t-save">"~4.2min saved per run"</span>, <span class="t-conf">"saved_time_ms"</span>: <span class="t-score">252000</span>, <span class="t-conf">"confidence"</span>: <span class="t-save">"medium"</span> <span class="t-dim">}</span>
+    <span class="t-dim">}</span>,
+    <span class="t-dim">{ ... }</span>
+  ],
+  <span class="t-conf">"listener_overhead_ms"</span>: <span class="t-score">42</span>
+<span class="t-dim">}</span></div>
+    </div>
+
     <h3 style="font-size:16px;font-weight:700;margin-bottom:12px;color:#374151">HTML report — interactive, collapsible issues with metrics and stage links</h3>
     <p style="font-size:13px;color:#64748b;margin-bottom:16px">Issues are grouped by type — e.g. <em>Disk Spill in Stage 3 [+4 more stages]</em> — so the report stays readable on large pipelines. Each issue shows its estimated impact badge, metrics table, and config/code fix blocks. Stage pills have callSite tooltips.</p>
     <iframe class="preview-frame" src="assets/report-sample.html" title="spark-lens HTML report sample" style="margin-bottom:40px"></iframe>
