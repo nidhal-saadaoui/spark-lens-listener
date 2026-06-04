@@ -17,6 +17,12 @@ object HtmlReporter extends Reporter {
     else if (ms >= 1000)  f"${ms / 1000.0}%.1fs"
     else s"${ms}ms"
 
+  private def fmtBytes(bytes: Long): String =
+    if (bytes >= 1024L * 1024L * 1024L) f"${bytes / (1024.0 * 1024.0 * 1024.0)}%.1f GB"
+    else if (bytes >= 1024L * 1024L) f"${bytes / (1024.0 * 1024.0)}%.1f MB"
+    else if (bytes >= 1024L) f"${bytes / 1024.0}%.1f KB"
+    else s"${bytes} B"
+
   private def severityClass(issue: Issue): String = issue.severity match {
     case Critical => "critical"
     case Warning  => "warning"
@@ -28,6 +34,13 @@ object HtmlReporter extends Reporter {
     val critical = issues.count(_.severity == Critical)
     val warning  = issues.count(_.severity == Warning)
     val info     = issues.count(_.severity == Info)
+
+    // Metrics for dashboard
+    val durationMs = app.durationMs.getOrElse(0L)
+    val peakMems = app.stages.values.map(_.totalPeakExecutionMemory).toSeq
+    val peakMemory = if (peakMems.isEmpty) 0L else peakMems.max
+    val totalShuffleBytes = app.stages.values.map(_.totalShuffleBytesWritten).sum
+    val totalGcMs = app.stages.values.map(_.totalGcTimeMs).sum
 
     val issueCards = issues.map { issue =>
       val cls   = severityClass(issue)
@@ -119,9 +132,65 @@ object HtmlReporter extends Reporter {
          |</div>""".stripMargin
     }
 
+    // Metrics summary dashboard
+    val metricsSummary = {
+      val metrics = Seq(
+        ("Duration", fmtMs(durationMs)),
+        ("Peak Memory", fmtBytes(peakMemory)),
+        ("Shuffle Bytes", fmtBytes(totalShuffleBytes)),
+        ("GC Time", fmtMs(totalGcMs)),
+        ("Stages", app.stages.size.toString),
+        ("Tasks", app.stages.values.map(s => if (s.hasExactAggregates) s.exactTaskCount else s.tasks.size).sum.toString),
+      )
+      val metricCards = metrics.map { case (label, value) =>
+        s"""<div class="card"><div class="card-val">${e(value.take(12))}</div><div class="card-lbl">$label</div></div>"""
+      }.mkString("\n    ")
+      s"""<div class="metrics-section">
+         |    <div class="section-title">Job Metrics</div>
+         |    <div class="cards">
+         |      $metricCards
+         |    </div>
+         |  </div>""".stripMargin
+    }
+
+    // Stage timeline chart
+    val stageTimeline = {
+      val timedStages = app.stages.values.filter(s => s.submissionTimeMs.isDefined && s.completionTimeMs.isDefined).toSeq
+      if (timedStages.isEmpty) ""
+      else {
+        val sortedStages = timedStages.sortBy(_.submissionTimeMs.getOrElse(0L))
+        val earliest = sortedStages.head.submissionTimeMs.getOrElse(0L)
+        val latest = sortedStages.map(_.completionTimeMs.getOrElse(0L)).max
+        val timeRange = if (latest > earliest) latest - earliest else 1L
+        val chartW = 700
+        val chartH = sortedStages.size * 24 + 40
+
+        val stages = sortedStages.zipWithIndex.map { case (stage, idx) =>
+          val submitMs = stage.submissionTimeMs.getOrElse(earliest)
+          val submitOffset = (((submitMs - earliest).toDouble / timeRange) * (chartW - 100)).toInt
+          val endTime = stage.completionTimeMs.getOrElse(latest)
+          val completeOffset = (((endTime - earliest).toDouble / timeRange) * (chartW - 100)).toInt
+          val barW = math.max(2, completeOffset - submitOffset)
+          val y = 30 + idx * 24
+          val color = if (stage.totalGcTimeMs > stage.durationMs * 0.1) "#ef5350"
+                      else if (stage.totalDiskSpillBytes > 0) "#ffa726" else "#29b6f6"
+          s"""<rect x="$submitOffset" y="$y" width="$barW" height="20" rx="2" fill="$color" opacity="0.8"/>
+             |      <text x="${submitOffset + barW / 2}" y="${y + 14}" class="chart-lbl" text-anchor="middle" font-size="10px" font-weight="bold">S${stage.stageId}</text>"""
+        }.mkString("\n      ")
+
+        s"""<div class="chart-wrap">
+           |  <div class="chart-title">Stage Timeline</div>
+           |  <svg width="$chartW" height="$chartH" class="chart-svg">
+           |    <text x="0" y="20" class="chart-lbl" font-weight="bold">Stages</text>
+           |    $stages
+           |  </svg>
+           |</div>""".stripMargin
+      }
+    }
+
     val body = if (issues.isEmpty)
-      """<p class="no-issues">&#10004; No issues detected.</p>"""
-    else chart + "\n" + issueCards
+      metricsSummary + "\n" + stageTimeline + """<p class="no-issues">&#10004; No issues detected.</p>"""
+    else metricsSummary + "\n" + stageTimeline + "\n" + chart + "\n" + issueCards
 
     s"""<!DOCTYPE html>
        |<html lang="en">
@@ -205,5 +274,7 @@ object HtmlReporter extends Reporter {
       |  .impact-badge{font-size:11px;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;border-radius:4px;padding:2px 7px;margin-left:8px;font-weight:500}
       |  .metrics-table{border-collapse:collapse;margin:8px 0;font-size:12px;font-family:'SFMono-Regular',Consolas,monospace}
       |  .metrics-table .mkey{color:#6b7280;padding:2px 10px 2px 0;white-space:nowrap}
-      |  .metrics-table .mval{color:#111;font-weight:600;padding:2px 0}""".stripMargin
+      |  .metrics-table .mval{color:#111;font-weight:600;padding:2px 0}
+      |  .metrics-section{margin-bottom:28px}
+      |  .section-title{font-size:14px;font-weight:700;color:#111;margin-bottom:12px}""".stripMargin
 }
