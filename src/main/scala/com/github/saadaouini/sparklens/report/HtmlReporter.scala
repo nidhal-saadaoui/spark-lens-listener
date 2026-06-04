@@ -188,9 +188,157 @@ object HtmlReporter extends Reporter {
       }
     }
 
+    // Memory usage timeline
+    val memoryTimeline = {
+      val timedStages = app.stages.values.filter(_.completionTimeMs.isDefined).toSeq
+      if (timedStages.isEmpty) ""
+      else {
+        val sortedStages = timedStages.sortBy(_.completionTimeMs.getOrElse(0L))
+        val submitTimes = app.stages.values.flatMap(_.submissionTimeMs)
+        val earliest = if (submitTimes.isEmpty) 0L else submitTimes.min
+        val latest = sortedStages.map(_.completionTimeMs.getOrElse(0L)).max
+        val timeRange = if (latest > earliest) latest - earliest else 1L
+        val maxMem = timedStages.map(_.totalPeakExecutionMemory).max
+        val chartW = 700
+        val chartH = 200
+
+        val dataPoints: Seq[(Int, Int, Long)] = sortedStages.map { stage =>
+          val endMs: Long = stage.completionTimeMs.getOrElse(latest)
+          val x: Int = (((endMs - earliest).toDouble / timeRange) * chartW).toInt
+          val y: Int = chartH - ((stage.totalPeakExecutionMemory.toDouble / maxMem) * (chartH - 40)).toInt
+          val mem: Long = stage.totalPeakExecutionMemory
+          (x, y, mem)
+        }
+
+        val points = dataPoints.map { case (x, y, _) => s"$x,$y" }.mkString(" ")
+        val polyline = if (dataPoints.nonEmpty) s"""<polyline points="$points" fill="none" stroke="#3b82f6" stroke-width="2" opacity="0.7"/>""" else ""
+
+        val labels = dataPoints.zipWithIndex.filter(_._2 % math.max(1, dataPoints.size / 5) == 0).map { case ((x, y, mem: Long), _) =>
+          s"""<text x="$x" y="${y - 5}" class="chart-lbl" font-size="10px" text-anchor="middle">${fmtBytes(mem)}</text>"""
+        }.mkString("\n      ")
+
+        s"""<div class="chart-wrap">
+           |  <div class="chart-title">Memory Pressure Over Time</div>
+           |  <svg width="$chartW" height="$chartH" class="chart-svg">
+           |    $polyline
+           |    $labels
+           |  </svg>
+           |</div>""".stripMargin
+      }
+    }
+
+    // Shuffle metrics breakdown
+    val shuffleMetrics = {
+      val shuffleStages = app.stages.values.filter(_.totalShuffleBytesWritten > 0).toSeq
+      if (shuffleStages.isEmpty) ""
+      else {
+        val sortedStages = shuffleStages.sortBy(_.stageId)
+        val maxBytes = math.max(sortedStages.map(_.totalInputBytes).max, sortedStages.map(_.totalShuffleBytesWritten).max)
+        val chartW = 700
+        val barH = 20
+        val chartH = sortedStages.size * 30 + 40
+
+        val bars = sortedStages.zipWithIndex.map { case (stage, idx) =>
+          val inW = (stage.totalInputBytes.toDouble / maxBytes * (chartW - 150)).toInt
+          val shuffleW = (stage.totalShuffleBytesWritten.toDouble / maxBytes * (chartW - 150)).toInt
+          val y = 30 + idx * 30
+
+          s"""<rect x="150" y="$y" width="$inW" height="${barH / 2}" fill="#2563eb" opacity="0.6"/>
+             |      <rect x="150" y="${y + barH / 2}" width="$shuffleW" height="${barH / 2}" fill="#dc2626" opacity="0.6"/>
+             |      <text x="5" y="${y + barH - 3}" class="chart-lbl" font-size="10px">S${stage.stageId}</text>
+             |      <text x="155" y="${y + barH + 12}" class="chart-val" font-size="9px">${fmtBytes(stage.totalInputBytes)}</text>"""
+        }.mkString("\n      ")
+
+        s"""<div class="chart-wrap">
+           |  <div class="chart-title">Shuffle Metrics (Input vs Written)</div>
+           |  <svg width="$chartW" height="$chartH" class="chart-svg">
+           |    <text x="150" y="20" class="chart-lbl" font-weight="bold" font-size="10px">Input (blue) | Written (red)</text>
+           |    $bars
+           |  </svg>
+           |</div>""".stripMargin
+      }
+    }
+
+    // GC timeline showing GC pause events
+    val gcTimeline = {
+      val timedStages = app.stages.values.filter(s => s.completionTimeMs.isDefined && s.totalGcTimeMs > 0).toSeq
+      if (timedStages.isEmpty) ""
+      else {
+        val sortedStages = timedStages.sortBy(_.completionTimeMs.getOrElse(0L))
+        val submitTimes = app.stages.values.flatMap(_.submissionTimeMs)
+        val earliest = if (submitTimes.isEmpty) 0L else submitTimes.min
+        val latest = sortedStages.map(_.completionTimeMs.getOrElse(0L)).max
+        val timeRange = if (latest > earliest) latest - earliest else 1L
+        val maxGc = sortedStages.map(_.totalGcTimeMs).max
+        val chartW = 700
+        val chartH = 200
+
+        val gcBars = sortedStages.map { stage =>
+          val endMs: Long = stage.completionTimeMs.getOrElse(latest)
+          val x: Int = (((endMs - earliest).toDouble / timeRange) * chartW).toInt
+          val gcMs: Long = stage.totalGcTimeMs
+          val h: Int = ((gcMs.toDouble / maxGc) * (chartH - 40)).toInt
+          val y: Int = chartH - h
+          val pct: Double = (gcMs.toDouble / stage.durationMs) * 100.0
+          val color = if (pct > 20.0) "#dc2626" else if (pct > 10.0) "#f97316" else "#3b82f6"
+
+          s"""<rect x="${math.max(2, x - 3)}" y="$y" width="6" height="$h" fill="$color" opacity="0.8"/>
+             |      <title>Stage GC: ${fmtMs(gcMs)} (${f"$pct%.1f"}%)</title>"""
+        }.mkString("\n      ")
+
+        s"""<div class="chart-wrap">
+           |  <div class="chart-title">GC Timeline (ms by completion time)</div>
+           |  <svg width="$chartW" height="$chartH" class="chart-svg">
+           |    $gcBars
+           |  </svg>
+           |</div>""".stripMargin
+      }
+    }
+
+    // Issue severity timeline: when critical/warning issues occur in the job
+    val severityTimeline = {
+      val criticalIssues = issues.filter(_.severity == Critical).flatMap(_.affectedStages).distinct
+      val warningIssues = issues.filter(_.severity == Warning).flatMap(_.affectedStages).distinct
+      if (criticalIssues.isEmpty && warningIssues.isEmpty) ""
+      else {
+        val affectedStages = (criticalIssues ++ warningIssues).distinct
+        val stageData = affectedStages.flatMap(sid => app.stages.get(sid)).filter(_.submissionTimeMs.isDefined)
+        if (stageData.isEmpty) ""
+        else {
+          val submitTimes = app.stages.values.flatMap(_.submissionTimeMs)
+          val earliest = if (submitTimes.isEmpty) 0L else submitTimes.min
+          val latest = stageData.map(_.completionTimeMs.getOrElse(0L)).max
+          val timeRange = if (latest > earliest) latest - earliest else 1L
+          val chartW = 700
+          val chartH = 80
+
+          val severityBars = stageData.map { stage =>
+            val submitMs: Long = stage.submissionTimeMs.getOrElse(earliest)
+            val submitX: Int = (((submitMs - earliest).toDouble / timeRange) * (chartW - 100)).toInt
+            val endMs: Long = stage.completionTimeMs.getOrElse(latest)
+            val endX: Int = (((endMs - earliest).toDouble / timeRange) * (chartW - 100)).toInt
+            val barW: Int = math.max(1, endX - submitX)
+            val isCritical = criticalIssues.contains(stage.stageId)
+            val color = if (isCritical) "#dc2626" else "#f59e0b"
+            val label = if (isCritical) "Critical" else "Warning"
+
+            s"""<rect x="$submitX" y="20" width="$barW" height="30" fill="$color" opacity="0.6"/>
+               |      <text x="${submitX + barW / 2}" y="43" class="chart-lbl" text-anchor="middle" font-size="9px">$label</text>"""
+          }.mkString("\n      ")
+
+          s"""<div class="chart-wrap">
+             |  <div class="chart-title">Issue Severity Timeline</div>
+             |  <svg width="$chartW" height="$chartH" class="chart-svg">
+             |    $severityBars
+             |  </svg>
+             |</div>""".stripMargin
+        }
+      }
+    }
+
     val body = if (issues.isEmpty)
-      metricsSummary + "\n" + stageTimeline + """<p class="no-issues">&#10004; No issues detected.</p>"""
-    else metricsSummary + "\n" + stageTimeline + "\n" + chart + "\n" + issueCards
+      metricsSummary + "\n" + stageTimeline + "\n" + memoryTimeline + "\n" + shuffleMetrics + "\n" + gcTimeline + """<p class="no-issues">&#10004; No issues detected.</p>"""
+    else metricsSummary + "\n" + stageTimeline + "\n" + memoryTimeline + "\n" + shuffleMetrics + "\n" + gcTimeline + "\n" + severityTimeline + "\n" + chart + "\n" + issueCards
 
     s"""<!DOCTYPE html>
        |<html lang="en">
