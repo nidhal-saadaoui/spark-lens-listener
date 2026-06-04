@@ -32,10 +32,36 @@ object PlanAnalyzer extends Analyzer {
       // Text-based detection: for unpartitioned Window the child Exchange SinglePartition
       // appears AFTER "Window" in the tree section; for partitioned windows the
       // SinglePartition exchange belongs to the outer aggregation and appears BEFORE.
+      //
+      // Spark 3.4+ FORMATTED plan change: exchange arguments are in the detail section
+      // ("Arguments: SinglePartition"), not inline in the tree ("Exchange SinglePartition").
+      // Both checks are combined so the analyzer works on all Spark versions.
       val windowTextFires: Boolean = if (plan.contains("Window")) {
         val treePlan = treeSection(plan)
         val wIdx = treePlan.indexOf("Window")
-        wIdx >= 0 && treePlan.indexOf("SinglePartition", wIdx) >= 0
+        // Old format: "Exchange SinglePartition" inline in tree after Window node
+        val oldFormat = wIdx >= 0 && treePlan.indexOf("SinglePartition", wIdx) >= 0
+        // FORMATTED plan (Spark 3.4+): node details are in numbered blocks separated by \n\n.
+        // Nodes are numbered (1) to (N), leaves first, root last.
+        // Exchange(SinglePartition) is a DESCENDANT of Window when Exchange ID < Window ID.
+        val newFormat = wIdx >= 0 && {
+          val nodeHeader = """\((\d+)\) (\w+)""".r
+          var windowId: Option[Int]   = None
+          var exchangeSpId: Option[Int] = None
+          plan.split("\n\n").foreach { block =>
+            nodeHeader.findFirstMatchIn(block.trim).foreach { m =>
+              val id   = m.group(1).toInt
+              val name = m.group(2)
+              if (name == "Window") windowId = Some(id)
+              if (name == "Exchange" && block.contains("SinglePartition")) exchangeSpId = Some(id)
+            }
+          }
+          (windowId, exchangeSpId) match {
+            case (Some(wId), Some(eId)) => eId < wId  // descendant → fire
+            case _                      => false
+          }
+        }
+        oldFormat || newFormat
       } else false
 
       // Plan-tree fallback: Window without PARTITION BY has Exchange(SinglePartition) as a

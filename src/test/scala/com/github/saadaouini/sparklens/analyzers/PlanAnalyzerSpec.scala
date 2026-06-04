@@ -98,6 +98,49 @@ class PlanAnalyzerSpec extends AnyFlatSpec with Matchers {
     win.head.severity shouldBe Warning
   }
 
+  it should "flag Window without partitionBy in Spark 3.5+ FORMATTED plan (Arguments in detail section)" in {
+    // Spark 3.5+ FORMATTED plan: exchange args are in the detail section, not inline in tree.
+    // Both partitioned and unpartitioned windows show identical tree sections ("Exchange (N)").
+    // The distinction: unpartitioned → "Arguments: SinglePartition" in detail,
+    //                  partitioned  → "Arguments: hashpartitioning(...)" in detail.
+    val plan =
+      "Window (5)\n" +
+      "+- * Sort (4)\n" +
+      "   +- Exchange (3)\n" +
+      "      +- * Project (2)\n" +
+      "         +- * Range (1)\n" +
+      "\n\n" +
+      "(1) Range [codegen id : 1]\n" +
+      "Arguments: Range (0, 50000, step=1)\n\n" +
+      "(3) Exchange\n" +
+      "Input [3]: [id#0L, ts#2L, val#5]\n" +
+      "Arguments: SinglePartition, ENSURE_REQUIREMENTS, [plan_id=15]\n\n" +
+      "(5) Window\n" +
+      "Arguments: [sum(val#5) windowspecdefinition(ts#2L ASC NULLS FIRST, ...)], [ts#2L ASC]\n"
+    val issues = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> sqlExec(plan = plan))))
+    val win = issues.filter(_.id.startsWith("plan-window-nopart"))
+    win should have size 1
+    win.head.severity shouldBe Warning
+  }
+
+  it should "not flag partitioned Window in Spark 3.5+ FORMATTED plan" in {
+    // Partitioned window uses hashpartitioning → no "Arguments: SinglePartition" in detail.
+    val plan =
+      "Window (5)\n" +
+      "+- * Sort (4)\n" +
+      "   +- Exchange (3)\n" +
+      "      +- * Project (2)\n" +
+      "         +- * Range (1)\n" +
+      "\n\n" +
+      "(3) Exchange\n" +
+      "Input [4]: [id#0L, user_id#2, ts#5L, val#9]\n" +
+      "Arguments: hashpartitioning(user_id#2, 200), ENSURE_REQUIREMENTS, [plan_id=15]\n\n" +
+      "(5) Window\n" +
+      "Arguments: [sum(val#9) windowspecdefinition(user_id#2, ts#5L ASC, ...)], [user_id#2]\n"
+    val issues = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> sqlExec(plan = plan))))
+    issues.exists(_.id.startsWith("plan-window-nopart")) shouldBe false
+  }
+
   it should "flag RoundRobinPartitioning as Info" in {
     val plan = "Exchange RoundRobinPartitioning(100)\n+- LocalRelation"
     val issues = PlanAnalyzer.analyze(app(sqlExecs = Map(0L -> sqlExec(plan = plan))))

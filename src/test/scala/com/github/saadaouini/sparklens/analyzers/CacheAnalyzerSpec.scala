@@ -116,6 +116,22 @@ class CacheAnalyzerSpec extends AnyFlatSpec with Matchers {
     CacheAnalyzer.analyze(app(sqlExecs = execs)).filter(_.category == "cache") shouldBe empty
   }
 
+  it should "flag a spark_catalog-qualified table name with minExecCount=2 (Spark 3.5 integration)" in {
+    // Spark 3.5.5 plan format: table name is 'spark_catalog.default.tableName'
+    val countPlan = "*(2) HashAggregate(keys=[], functions=[count(1)])\n" +
+      "+- *(1) ColumnarToRow\n" +
+      "   +- FileScan parquet spark_catalog.default.user_events[] Batched: true, ..."
+    val sumPlan   = "*(2) HashAggregate(keys=[], functions=[sum(val#8L)])\n" +
+      "+- *(1) ColumnarToRow\n" +
+      "   +- FileScan parquet spark_catalog.default.user_events[val#8L] Batched: true, ..."
+    val execs = Map(0L -> sqlExec(id=0L, plan=countPlan), 1L -> sqlExec(id=1L, plan=sumPlan))
+    val issues = CacheAnalyzer.analyze(app(
+      sqlExecs = execs,
+      props    = Map("spark.sparklens.cache.sql.minExecCount" -> "2"),
+    ))
+    issues.filter(_.id.startsWith("cache-sql")) should have size 1
+  }
+
   it should "fire at a custom sql.minExecCount threshold" in {
     val plan = "FileScan parquet default.events[id#1L] ..."
     val execs = (0 to 2).map(i => i.toLong -> sqlExec(id = i.toLong, plan = plan)).toMap

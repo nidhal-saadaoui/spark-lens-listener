@@ -53,22 +53,30 @@ def run_skew_after(spark):
 
 # ─── cache ───────────────────────────────────────────────────────────────────
 
+_CACHE_PARQUET = "/tmp/spark-lens-cache-data"
+
 def run_cache_before(spark):
-    """Named RDD used in two separate jobs without caching — triggers repeated-scan warning."""
-    sc = spark.sparkContext
-    rdd = sc.parallelize(range(200_000), 10).setName("user_events")
-    count1 = rdd.count()
-    total2 = rdd.reduce(lambda a, b: a + b)
+    """DataFrame written to parquet and read back in multiple SQL executions without caching.
+    NOTE: CacheAnalyzer's SQL check requires FileScan for a *catalog table* (not a path-backed
+    temp view) to extract the table name via FileScanRe. Python 3.12+ cloudpickle bugs prevent
+    using RDD-based detection. This scenario exercises the code path but CacheAnalyzer may not
+    fire in all Spark/Python version combinations — unit tests cover the analyzer logic."""
+    spark.range(200_000).withColumn("val", F.col("id") * 2) \
+         .write.mode("overwrite").parquet(_CACHE_PARQUET)
+    df = spark.read.parquet(_CACHE_PARQUET)
+    count1 = df.agg(F.count("val")).collect()[0][0]
+    total2 = df.agg(F.sum("val")).collect()[0][0]
     print(f"   cache-before: count={count1} sum={total2}")
 
 
 def run_cache_after(spark):
-    """Same RDD cached before the first action — repeated-scan warning is suppressed."""
-    sc = spark.sparkContext
-    rdd = sc.parallelize(range(200_000), 10).setName("user_events").cache()
-    count1 = rdd.count()
-    total2 = rdd.reduce(lambda a, b: a + b)
-    rdd.unpersist()
+    """Same data, cached before the second scan — repeated-scan warning should be suppressed."""
+    spark.range(200_000).withColumn("val", F.col("id") * 2) \
+         .write.mode("overwrite").parquet(_CACHE_PARQUET)
+    df = spark.read.parquet(_CACHE_PARQUET).cache()
+    count1 = df.agg(F.count("val")).collect()[0][0]
+    total2 = df.agg(F.sum("val")).collect()[0][0]
+    df.unpersist()
     print(f"   cache-after: count={count1} sum={total2}")
 
 
@@ -145,25 +153,28 @@ def run_config_aqe_after(spark):
 # ─── config_serializer ───────────────────────────────────────────────────────
 
 def run_config_serializer_before(spark):
-    """Use default Java serializer — ConfigAnalyzer Java-serializer issue fires."""
-    # Default is JavaSerializer; we do an RDD shuffle to exercise it
-    sc = spark.sparkContext
-    result = sc.parallelize(range(50_000), 10) \
-               .map(lambda x: (x % 100, x)) \
-               .groupByKey() \
-               .mapValues(list) \
-               .count()
+    """Use default Java serializer — ConfigAnalyzer Java-serializer issue fires.
+    Uses DataFrame API (no Python lambda serialization) to avoid cloudpickle
+    recursion overflow on Python 3.12+."""
+    result = (
+        spark.range(50_000)
+             .withColumn("k", (F.col("id") % 100).cast("int"))
+             .groupBy("k")
+             .agg(F.count("id").alias("n"))
+             .count()
+    )
     print(f"   config_serializer-before groups: {result}")
 
 
 def run_config_serializer_after(spark):
     """Kryo serializer is set at builder time — Java-serializer issue resolved."""
-    sc = spark.sparkContext
-    result = sc.parallelize(range(50_000), 10) \
-               .map(lambda x: (x % 100, x)) \
-               .groupByKey() \
-               .mapValues(list) \
-               .count()
+    result = (
+        spark.range(50_000)
+             .withColumn("k", (F.col("id") % 100).cast("int"))
+             .groupBy("k")
+             .agg(F.count("id").alias("n"))
+             .count()
+    )
     print(f"   config_serializer-after groups: {result}")
 
 
