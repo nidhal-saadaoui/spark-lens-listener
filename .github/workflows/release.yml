@@ -82,13 +82,12 @@ jobs:
         env:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
 
-      # Publish each subproject explicitly to avoid root project being bundled.
-      # Root has publish/skip but sbt aggregation still stages its POM, causing validation failures.
+      # +publishSigned stages all subprojects. Then remove root's POM from staging
+      # (root has publish/skip but still gets staged by aggregation), then bundle.
       - name: Publish to Maven Central
         run: |
-          sbt "core/+publishSigned"
-          sbt "listener/+publishSigned"
-          sbt "testing/+publishSigned"
+          sbt "+publishSigned"
+          rm -rf target/sonatype-staging/*/io/github/nidhal-saadaoui/root-*
           sbt "sonatypeBundleRelease"
         env:
           PGP_PASSPHRASE:    ${{ secrets.PGP_PASSPHRASE }}
