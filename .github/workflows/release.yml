@@ -87,46 +87,43 @@ jobs:
       # sonatypeUploadBundle uploads to the new Central Portal without touching
       # the legacy OSSRH staging API (sonatypeBundleRelease calls
       # stagingRepositoryProfiles which returns 402 on central.sonatype.com).
-      # +publishSigned writes signed JARs/POMs/sources/javadoc into
-      # target/sonatype-staging/ (Maven layout). It does NOT create bundle.zip.
-      - name: Publish signed artifacts
-        run: sbt "+publishSigned"
+      # sonatypeBundleRelease = signs + bundles + uploads via sbt-sonatype's own
+      # HTTP client (which the Central Portal accepts). Uploads as USER_MANAGED.
+      - name: Publish signed artifacts and upload bundle
+        run: sbt "+publishSigned" "sonatypeBundleRelease"
         env:
-          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+          PGP_PASSPHRASE:    ${{ secrets.PGP_PASSPHRASE }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
 
-      # Zip the staged artifacts ourselves, then upload with publishingType=AUTOMATIC
-      # so Sonatype Central promotes immediately without manual portal action.
-      # sbt-sonatype 3.12.x hardcodes USER_MANAGED so we bypass it entirely.
-      - name: Bundle and upload to Sonatype Central (auto-publish)
-        run: |
-          STAGING="target/sonatype-staging"
-          echo "Staging directory contents:"
-          ls -la "$STAGING" || { echo "ERROR: staging dir missing — publishSigned may have failed"; exit 1; }
-
-          # sbt-sonatype writes artifacts under a version-named subdirectory:
-          #   target/sonatype-staging/1.6.1/io/github/nidhal-saadaoui/...
-          # The bundle.zip root must start with io/github/... NOT 1.6.1/io/github/...
-          # so we zip from inside the version subdirectory.
-          VERSION_SUBDIR=$(ls "$STAGING" | head -1)
-          echo "Zipping from: $STAGING/$VERSION_SUBDIR"
-          (cd "$STAGING/$VERSION_SUBDIR" && zip -r ../bundle.zip .)
-          echo "Bundle size: $(du -sh $STAGING/bundle.zip | cut -f1)"
-
-          # Sonatype Central API uses Bearer token auth, not HTTP Basic.
-          # The token is base64(username:password) of the portal user token credentials.
-          TOKEN=$(printf '%s:%s' "$SONATYPE_USERNAME" "$SONATYPE_PASSWORD" | base64 -w 0)
-          RESPONSE=$(curl -s -w "\n%{http_code}" \
-            -H "Authorization: Bearer $TOKEN" \
-            -F "bundle=@${STAGING}/bundle.zip" \
-            "https://central.sonatype.com/api/v1/publisher/upload?name=${{ github.ref_name }}&publishingType=AUTOMATIC")
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | head -1)
-          echo "Deployment ID : $BODY"
-          echo "HTTP status   : $HTTP_CODE"
-          [ "$HTTP_CODE" -lt 300 ] || exit 1
+      # sonatypeBundleRelease uploads with USER_MANAGED (hardcoded in sbt-sonatype 3.12.x).
+      # Use the Central Portal API to find the PENDING deployment and promote it.
+      - name: Promote deployment to PUBLISHED
         env:
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+        run: |
+          TOKEN=$(printf '%s:%s' "$SONATYPE_USERNAME" "$SONATYPE_PASSWORD" | base64 -w 0)
+
+          echo "Fetching pending deployments..."
+          BODY=$(curl -sf \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/json" \
+            "https://central.sonatype.com/api/v1/publisher/deployments?namespace=io.github.nidhal-saadaoui&maxResults=5&state=PENDING")
+          echo "Response: $BODY"
+
+          DEPLOYMENT_ID=$(echo "$BODY" | jq -r '.deployments[0].deploymentId // empty')
+          if [ -z "$DEPLOYMENT_ID" ]; then
+            echo "ERROR: no PENDING deployment found"
+            exit 1
+          fi
+
+          echo "Publishing deployment: $DEPLOYMENT_ID"
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            "https://central.sonatype.com/api/v1/publisher/deployment/$DEPLOYMENT_ID")
+          echo "Publish HTTP status: $HTTP"
+          [ "$HTTP" -lt 300 ] || exit 1
 
       # Assembly is only configured on the listener subproject.
       # Build both Scala versions for the GitHub release attachments.
