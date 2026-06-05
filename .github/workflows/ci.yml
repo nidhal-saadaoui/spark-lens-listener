@@ -56,6 +56,7 @@ jobs:
             --add-opens=java.base/sun.security.action=ALL-UNNAMED
             --add-opens=java.base/sun.util.calendar=ALL-UNNAMED
             --add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED
+        # Run all 3 subprojects: core (unit tests), listener (builder spec), testing (example spec)
         run: sbt ++${{ matrix.scala }} test
 
   # ── Build fat JAR (Scala 2.12 — matches default Spark binary version) ─────
@@ -80,7 +81,7 @@ jobs:
         uses: sbt/setup-sbt@v1
 
       - name: Build fat JAR
-        run: sbt "++2.12.20 assembly"
+        run: sbt "++2.12.20 listener/assembly"
 
       - name: Upload assembly JAR
         uses: actions/upload-artifact@v4

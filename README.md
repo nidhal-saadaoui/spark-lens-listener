@@ -135,6 +135,48 @@ All settings are optional and prefixed with `spark.sparklens.*`:
 | `spark.sparklens.plan.compileWarnMs` | `5000` | ms | Driver plan compilation time above which a slow-compile warning fires |
 | `spark.sparklens.stageParallelism.singleTaskMinMs` | `5000` | ms | Minimum duration for a single-task stage to be flagged |
 
+## Performance contract testing
+
+`spark-lens-testing` lets you write ScalaTest specs that assert on the analysis results of your Spark code — catching regressions before they hit production.
+
+```scala
+// build.sbt
+libraryDependencies += "io.github.nidhal-saadaoui" %% "spark-lens-testing" % "LATEST_VERSION" % Test
+```
+
+```scala
+import com.github.saadaouini.sparklens.testing.SparkLensSpec
+
+class MyJobSpec extends SparkLensSpec {
+
+  "cartesian join" should "be flagged by spark-lens" in {
+    analyse {
+      spark.range(1000).crossJoin(spark.range(100)).count()
+    } should haveIssue("plan-cartesian")
+  }
+
+  "aggregation job" should "not spill to disk" in {
+    analyse {
+      MyJob.run(spark)
+    } should not(haveIssueOfCategory("spill"))
+  }
+
+  "job health" should "stay above 75" in {
+    analyse {
+      MyJob.run(spark)
+    }.healthScore should be >= 75
+  }
+}
+```
+
+The `analyse {}` block runs the Spark code with a local session, captures all events, and returns a `SparkLensResult` with the full issue list and health score. No Spark cluster needed — runs in `sbt test`.
+
+Available matchers: `haveIssue(id)`, `haveIssueOfCategory(cat)`, `haveIssueOfSeverity(sev)`, `haveHealthScoreAbove(n)`, `haveHealthScoreBelow(n)`, `haveNoIssuesOfSeverity(sev)`.
+
+Use `SparkLensSuite` instead of `SparkLensSpec` for FunSuite-style tests.
+
+> **Note:** Requires JVM < 23. Spark 3.5 / Hadoop 3.3.4 use `Subject.getSubject()` removed in Java 23. Tests on Java 23+ are automatically cancelled (not failed).
+
 ## CI quality gate
 
 Fail the Spark application itself if critical issues are found:

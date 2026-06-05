@@ -5,6 +5,48 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.0] — 2026-06-05
+
+### Multi-module build + spark-lens-testing artifact
+
+**Build refactor — 3 subprojects:**
+- `spark-lens-core` — model, analyzers, reporters (shared logic, no duplication)
+- `spark-lens` — production listener (`SparkLensListener`, `SparkAppModelBuilder`), depends on core
+- `spark-lens-testing` — test utilities, depends on core + listener
+
+All 29 analyzers live in `spark-lens-core` exactly once. Both the production listener and the test utilities consume them as a dependency.
+
+**New: `spark-lens-testing` artifact**
+
+Lets users write ScalaTest specs that assert on spark-lens analysis results — performance contract tests that catch regressions before production:
+
+```scala
+libraryDependencies += "io.github.nidhal-saadaoui" %% "spark-lens-testing" % "1.6.0" % Test
+```
+
+```scala
+class MyJobSpec extends SparkLensSpec {
+  "cartesian join" should "be flagged" in {
+    analyse { spark.range(100).crossJoin(spark.range(10)).count() } should haveIssue("plan-cartesian")
+  }
+  "aggregation" should "not spill" in {
+    analyse { MyJob.run(spark) } should not(haveIssueOfCategory("spill"))
+  }
+}
+```
+
+Components:
+- `SparkLensSpec` (FlatSpec) / `SparkLensSuite` (FunSuite) — traits with shared local SparkSession and `analyse {}` block
+- `SparkLensAnalyser.run {}` — attaches a scoped listener to the existing session, flushes async events, builds `SparkAppModel`, runs all analyzers
+- `SparkLensMatchers` — `haveIssue`, `haveIssueOfCategory`, `haveIssueOfSeverity`, `haveHealthScoreAbove/Below`, `haveNoIssuesOfSeverity`
+- `SparkLensResult` — wraps `SparkAppModel` + `Seq[Issue]` with convenience accessors
+
+**New: `Scoring` object in core**
+
+`Reporter.healthScore`, `issueClusterGroups`, and `deduplicatedSavingsMs` extracted to public `object Scoring` in `spark-lens-core`. `Reporter` now delegates to it. `SparkLensResult` uses `Scoring.healthScore` directly.
+
+---
+
 ## [1.5.0] — 2026-06-04
 
 ### Interactive HTML dashboard with performance timelines

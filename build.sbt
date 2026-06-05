@@ -1,3 +1,4 @@
+// ── Shared metadata (published to Maven Central for all subprojects) ──────────
 ThisBuild / organization         := "io.github.nidhal-saadaoui"
 ThisBuild / organizationName     := "saadaouini"
 ThisBuild / organizationHomepage := Some(url("https://github.com/nidhal-saadaoui"))
@@ -18,27 +19,78 @@ ThisBuild / homepage    := Some(url("https://github.com/nidhal-saadaoui/spark-le
 
 ThisBuild / scalaVersion          := "2.12.20"
 ThisBuild / crossScalaVersions    := Seq("2.12.20", "2.13.15")
-ThisBuild / dynverSonatypeSnapshots := true  // appends -SNAPSHOT for non-tagged commits
+ThisBuild / dynverSonatypeSnapshots := true
 
-lazy val root = (project in file("."))
+val sparkVersion = "3.5.0"
+
+// ── Shared compiler & test settings ──────────────────────────────────────────
+val commonSettings = Seq(
+  scalacOptions ++= Seq(
+    "-encoding", "utf8",
+    "-deprecation",
+    "-feature",
+    "-unchecked",
+    "-Xfatal-warnings",
+  ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
+    case Some((2, 12)) => Seq("-Ypartial-unification", "-target:jvm-1.8")
+    case Some((2, 13)) => Seq("-release", "8")
+    case _             => Nil
+  }),
+
+  Test / fork := true,
+  Test / javaOptions ++= Seq(
+    "--add-opens=java.base/javax.security.auth=ALL-UNNAMED",
+    "--add-opens=java.base/java.lang=ALL-UNNAMED",
+    "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED",
+    "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+    "--add-opens=java.base/java.io=ALL-UNNAMED",
+    "--add-opens=java.base/java.net=ALL-UNNAMED",
+    "--add-opens=java.base/java.nio=ALL-UNNAMED",
+    "--add-opens=java.base/java.util=ALL-UNNAMED",
+    "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
+    "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED",
+    "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
+    "--add-opens=java.base/sun.nio.cs=ALL-UNNAMED",
+    "--add-opens=java.base/sun.security.action=ALL-UNNAMED",
+    "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED",
+    "--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED",
+  ),
+
+  publishMavenStyle      := true,
+  publishTo              := sonatypePublishToBundle.value,
+  sonatypeCredentialHost := "central.sonatype.com",
+  usePgpKeyHex("5D4E47CFFB9C4CE1"),
+  pgpPassphrase          := sys.env.get("PGP_PASSPHRASE").map(_.toCharArray),
+)
+
+// ── core: model, analyzers, reporters — no Spark dependency ──────────────────
+lazy val core = (project in file("core"))
+  .settings(commonSettings)
+  .settings(
+    name := "spark-lens-core",
+    libraryDependencies ++= Seq(
+      // spark-core is provided for Hadoop FS used in Reporter.writeOrPrint
+      "org.apache.spark" %% "spark-core" % sparkVersion % "provided",
+      "org.apache.spark" %% "spark-sql"  % sparkVersion % "provided",
+      "org.slf4j"        %  "slf4j-api"  % "1.7.36"     % "provided",
+      "org.scalatest"    %% "scalatest"  % "3.2.18"      % Test,
+    ),
+  )
+
+// ── listener: SparkLensListener + SparkAppModelBuilder ───────────────────────
+// When bumping Spark version: validate PlanAnalyzer and JoinAnalyzer string
+// matches against a real FORMATTED plan dump from the new version. Fragile
+// checks: "Statistics(sizeInBytes=" and "\n\n(" tree/detail boundary.
+lazy val listener = (project in file("listener"))
+  .dependsOn(core, core % "test->test")
+  .settings(commonSettings)
   .settings(
     name := "spark-lens",
-
-    // Spark is provided by the cluster — do not bundle it
-    // When bumping Spark version: validate PlanAnalyzer and JoinAnalyzer string matches
-    // against a real FORMATTED plan dump from the new version.  Fragile checks include
-    // the CBO stats string ("Statistics(sizeInBytes=") and the "\n\n(" tree/detail boundary.
-    // See src/test/scala/.../analyzers/PlanAnalyzerSpec.scala for the test plan format.
     libraryDependencies ++= Seq(
-      "org.apache.spark" %% "spark-core" % "3.5.0" % "provided",
-      "org.apache.spark" %% "spark-sql"  % "3.5.0" % "provided",
-      // SLF4J is always on the Spark driver classpath; we use it directly so the
-      // log format writes through log4j/logback with the same format as Spark itself.
-      // 1.7.36 compiles and works at runtime against both SLF4J 1.7.x (Spark 3.2/3.3)
-      // and SLF4J 2.x (Spark 3.4+) — the 2.x API is fully backward-compatible.
-      "org.slf4j"        %  "slf4j-api"  % "1.7.36" % "provided",
+      "org.apache.spark" %% "spark-core" % sparkVersion % "provided",
+      "org.apache.spark" %% "spark-sql"  % sparkVersion % "provided",
+      "org.slf4j"        %  "slf4j-api"  % "1.7.36"     % "provided",
     ),
-
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.18" % Test,
 
     // Assembly JAR — Spark stays provided so the JAR is small
@@ -48,42 +100,31 @@ lazy val root = (project in file("."))
       case x                                    => (assembly / assemblyMergeStrategy).value(x)
     },
     assembly / assemblyJarName := s"${name.value}_${scalaBinaryVersion.value}-${version.value}-assembly.jar",
+  )
 
-    scalacOptions ++= Seq(
-      "-encoding", "utf8",
-      "-deprecation",
-      "-feature",
-      "-unchecked",
-      "-Xfatal-warnings",
-    ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
-      case Some((2, 12)) => Seq("-Ypartial-unification", "-target:jvm-1.8")
-      case Some((2, 13)) => Seq("-release", "8")
-      case _             => Nil
-    }),
-
-    Test / fork := true,
-    Test / javaOptions ++= Seq(
-      "--add-opens=java.base/javax.security.auth=ALL-UNNAMED",
-      "--add-opens=java.base/java.lang=ALL-UNNAMED",
-      "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED",
-      "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
-      "--add-opens=java.base/java.io=ALL-UNNAMED",
-      "--add-opens=java.base/java.net=ALL-UNNAMED",
-      "--add-opens=java.base/java.nio=ALL-UNNAMED",
-      "--add-opens=java.base/java.util=ALL-UNNAMED",
-      "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
-      "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED",
-      "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
-      "--add-opens=java.base/sun.nio.cs=ALL-UNNAMED",
-      "--add-opens=java.base/sun.security.action=ALL-UNNAMED",
-      "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED",
-      "--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED",
+// ── testing: SparkLensSpec, SparkLensSuite, SparkLensMatchers ────────────────
+lazy val testing = (project in file("testing"))
+  .dependsOn(core, listener)
+  .settings(commonSettings)
+  .settings(
+    name := "spark-lens-testing",
+    libraryDependencies ++= Seq(
+      "org.apache.spark" %% "spark-core" % sparkVersion % "provided",
+      "org.apache.spark" %% "spark-sql"  % sparkVersion % "provided",
+      // scalatest is a compile dependency (not Test) — users depend on it transitively
+      "org.scalatest"    %% "scalatest"  % "3.2.18",
     ),
+    // Java 23+ removed Subject.getSubject(); re-enable for Spark 3.5 / Hadoop UGI compat
+    Test / javaOptions += "-Djdk.subject.compat=true",
+  )
 
-    publishMavenStyle      := true,
-    publishTo              := sonatypePublishToBundle.value,
-    sonatypeCredentialHost := "central.sonatype.com",
-    usePgpKeyHex("5D4E47CFFB9C4CE1"),
-
-    pgpPassphrase := sys.env.get("PGP_PASSPHRASE").map(_.toCharArray),
+// ── root: aggregator only, not published ─────────────────────────────────────
+lazy val root = (project in file("."))
+  .aggregate(core, listener, testing)
+  .settings(
+    publish / skip        := true,
+    publishLocal / skip   := true,
+    // Prevent sbt from looking for sources in the root src/ during aggregate builds
+    Compile / unmanagedSourceDirectories := Nil,
+    Test    / unmanagedSourceDirectories := Nil,
   )
