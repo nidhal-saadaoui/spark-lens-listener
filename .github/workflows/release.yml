@@ -103,10 +103,14 @@ jobs:
           echo "Staging directory contents:"
           ls -la "$STAGING" || { echo "ERROR: staging dir missing — publishSigned may have failed"; exit 1; }
 
-          cd "$STAGING"
-          zip -r bundle.zip .
-          echo "Bundle size: $(du -sh bundle.zip | cut -f1)"
-          cd -
+          # sbt-sonatype writes artifacts under a version-named subdirectory:
+          #   target/sonatype-staging/1.6.1/io/github/nidhal-saadaoui/...
+          # The bundle.zip root must start with io/github/... NOT 1.6.1/io/github/...
+          # so we zip from inside the version subdirectory.
+          VERSION_SUBDIR=$(ls "$STAGING" | head -1)
+          echo "Zipping from: $STAGING/$VERSION_SUBDIR"
+          (cd "$STAGING/$VERSION_SUBDIR" && zip -r ../bundle.zip .)
+          echo "Bundle size: $(du -sh $STAGING/bundle.zip | cut -f1)"
 
           # Sonatype Central API uses Bearer token auth, not HTTP Basic.
           # The token is base64(username:password) of the portal user token credentials.
