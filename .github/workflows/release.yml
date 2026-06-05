@@ -82,13 +82,10 @@ jobs:
         env:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
 
-      # +publishSigned stages all subprojects. Then remove root's POM from staging
-      # (root has publish/skip but still gets staged by aggregation), then bundle.
-      - name: Publish to Maven Central
-        run: |
-          sbt "+publishSigned"
-          rm -rf target/sonatype-staging/*/io/github/nidhal-saadaoui/root-*
-          sbt "sonatypeBundleRelease"
+      # Upload signed artifacts to Sonatype Central (USER_MANAGED).
+      # You will manually promote in the portal: central.sonatype.com → Deployments → Publish
+      - name: Upload to Maven Central (manual promotion required)
+        run: sbt "+publishSigned" "sonatypeBundleRelease"
         env:
           PGP_PASSPHRASE:    ${{ secrets.PGP_PASSPHRASE }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
