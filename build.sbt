@@ -114,8 +114,20 @@ lazy val testing = (project in file("testing"))
       // scalatest is a compile dependency (not Test) — users depend on it transitively
       "org.scalatest"    %% "scalatest"  % "3.2.18",
     ),
-    // Java 23+ removed Subject.getSubject(); re-enable for Spark 3.5 / Hadoop UGI compat
-    Test / javaOptions += "-Djdk.subject.compat=true",
+    // Spark 3.5 / Hadoop 3.3.4 requires JVM < 23 (Subject.getSubject was removed in Java 21+).
+    // When the current JVM is >= 23, auto-detect a Java 17 installation and use it for tests.
+    // Override by setting JAVA_17_HOME in your environment.
+    Test / javaHome := {
+      val currentMajor = sys.props("java.version").split("\\.")(0).toInt
+      if (currentMajor < 23) None
+      else Seq(
+        sys.env.get("JAVA_17_HOME"),
+        Some("/opt/homebrew/opt/openjdk@17"),
+        Some("/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home"),
+        Some("/usr/lib/jvm/java-17-openjdk-amd64"),
+        Some("/usr/lib/jvm/java-17-openjdk"),
+      ).flatten.map(file).find(f => (f / "bin" / "java").exists)
+    },
   )
 
 // ── root: aggregator only, not published ─────────────────────────────────────

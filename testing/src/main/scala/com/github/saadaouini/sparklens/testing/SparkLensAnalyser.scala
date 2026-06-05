@@ -11,15 +11,7 @@ object SparkLensAnalyser {
     spark.sparkContext.addSparkListener(listener)
     try {
       block
-      // Wait until all active jobs complete (actions are blocking in local mode,
-      // but the status tracker confirms Spark has finished scheduling too).
-      // Then drain the async listener bus with a short sleep before calling build().
-      val deadline = System.currentTimeMillis() + 30000L
-      while (spark.sparkContext.statusTracker.getActiveJobIds().nonEmpty &&
-             System.currentTimeMillis() < deadline) {
-        Thread.sleep(20)
-      }
-      Thread.sleep(200) // brief drain for listener bus async events
+      drainListenerBus(spark.sparkContext)
       val model  = builder.build(System.currentTimeMillis())
       val issues = Analyzers.runAll(model)
       SparkLensResult(model, issues)
@@ -27,4 +19,19 @@ object SparkLensAnalyser {
       spark.sparkContext.removeSparkListener(listener)
     }
   }
+
+  // Drain the async listener bus before reading results.
+  // listenerBus is private[spark] so we access it via reflection; fall back to
+  // a 1-second sleep if the API changes in a future Spark version.
+  private def drainListenerBus(sc: org.apache.spark.SparkContext): Unit =
+    try {
+      val f = classOf[org.apache.spark.SparkContext].getDeclaredField("listenerBus")
+      f.setAccessible(true)
+      val bus = f.get(sc)
+      val wait = bus.getClass.getMethods
+        .find(m => m.getName == "waitUntilEmpty" && m.getParameterCount == 1)
+        .orNull
+      if (wait != null) wait.invoke(bus, 30000L.asInstanceOf[AnyRef])
+      else Thread.sleep(1000L)
+    } catch { case _: Exception => Thread.sleep(1000L) }
 }

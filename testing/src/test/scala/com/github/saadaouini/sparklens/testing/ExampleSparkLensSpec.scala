@@ -12,8 +12,10 @@ class ExampleSparkLensSpec extends SparkLensSpec {
 
   "cross join" should "trigger a CartesianProduct issue" in {
     analyse {
-      spark.conf.set("spark.sql.crossJoin.enabled", "true")
-      spark.range(100).crossJoin(spark.range(10)).count()
+      spark.conf.set("spark.sql.crossJoin.enabled",          "true")
+      // Disable auto-broadcast to force CartesianProduct (not BroadcastNestedLoopJoin)
+      spark.conf.set("spark.sql.autoBroadcastJoinThreshold", "-1")
+      spark.range(1000).crossJoin(spark.range(100)).count()
     } should haveIssue("plan-cartesian")
   }
 
