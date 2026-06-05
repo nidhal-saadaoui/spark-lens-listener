@@ -10,8 +10,8 @@ trait SparkLensMatchers extends Matchers {
     Matcher { result =>
       MatchResult(
         result.hasIssue(id),
-        s"Expected issue '$id' but got: ${result.issues.map(_.id).mkString(", ")}",
-        s"Did not expect issue '$id' but it was present",
+        s"Expected issue '$id' but none was found.\n${result.textReport}",
+        s"Did not expect issue '$id' but it was present.\n${result.textReport}",
       )
     }
 
@@ -19,8 +19,8 @@ trait SparkLensMatchers extends Matchers {
     Matcher { result =>
       MatchResult(
         result.hasIssueOfCategory(category),
-        s"Expected an issue of category '$category' but got categories: ${result.issues.map(_.category).distinct.mkString(", ")}",
-        s"Did not expect any issue of category '$category' but one was present",
+        s"Expected an issue of category '$category' but none was found.\n${result.textReport}",
+        s"Did not expect any issue of category '$category' but one was present.\n${result.textReport}",
       )
     }
 
@@ -28,8 +28,8 @@ trait SparkLensMatchers extends Matchers {
     Matcher { result =>
       MatchResult(
         result.hasIssueOfSeverity(severity),
-        s"Expected an issue of severity '${severity.label}' but none found",
-        s"Did not expect any issue of severity '${severity.label}' but one was present",
+        s"Expected an issue of severity '${severity.label}' but none was found.\n${result.textReport}",
+        s"Did not expect any issue of severity '${severity.label}' but one was present.\n${result.textReport}",
       )
     }
 
@@ -37,8 +37,8 @@ trait SparkLensMatchers extends Matchers {
     Matcher { result =>
       MatchResult(
         !result.hasIssueOfSeverity(severity),
-        s"Expected no issues of severity '${severity.label}' but found: ${result.issuesOfSeverity(severity).map(_.id).mkString(", ")}",
-        s"Expected at least one issue of severity '${severity.label}' but none found",
+        s"Expected no issues of severity '${severity.label}' but found: ${result.issuesOfSeverity(severity).map(_.id).mkString(", ")}.\n${result.textReport}",
+        s"Expected at least one issue of severity '${severity.label}' but none was found.\n${result.textReport}",
       )
     }
 
@@ -46,8 +46,8 @@ trait SparkLensMatchers extends Matchers {
     Matcher { result =>
       MatchResult(
         result.healthScore > n,
-        s"Expected health score > $n but got ${result.healthScore}",
-        s"Expected health score <= $n but got ${result.healthScore}",
+        s"Expected health score > $n but got ${result.healthScore}.\n${result.textReport}",
+        s"Expected health score <= $n but got ${result.healthScore}.\n${result.textReport}",
       )
     }
 
@@ -55,8 +55,8 @@ trait SparkLensMatchers extends Matchers {
     Matcher { result =>
       MatchResult(
         result.healthScore < n,
-        s"Expected health score < $n but got ${result.healthScore}",
-        s"Expected health score >= $n but got ${result.healthScore}",
+        s"Expected health score < $n but got ${result.healthScore}.\n${result.textReport}",
+        s"Expected health score >= $n but got ${result.healthScore}.\n${result.textReport}",
       )
     }
 

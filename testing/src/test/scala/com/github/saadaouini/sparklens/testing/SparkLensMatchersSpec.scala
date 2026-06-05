@@ -42,18 +42,19 @@ class SparkLensMatchersSpec extends AnyFlatSpec with SparkLensMatchers {
       noIssues should haveIssue("spill")
     }
     ex.getMessage should include("Expected issue 'spill'")
-    ex.getMessage should include("but got:")
+    ex.getMessage should include("spark-lens")  // full text report is embedded
   }
 
   it should "support negation" in {
     noIssues should not(haveIssue("spill"))
   }
 
-  it should "fail negation when issue is present" in {
+  it should "fail negation when issue is present and include report" in {
     val ex = intercept[org.scalatest.exceptions.TestFailedException] {
       resultWith(issue("spill-1", Critical, "spill")) should not(haveIssue("spill-1"))
     }
     ex.getMessage should include("Did not expect issue 'spill-1'")
+    ex.getMessage should include("spark-lens")  // full text report embedded
   }
 
   // ── haveIssueOfCategory ───────────────────────────────────────────────────
@@ -62,11 +63,12 @@ class SparkLensMatchersSpec extends AnyFlatSpec with SparkLensMatchers {
     resultWith(issue("gc-2", Warning, "gc")) should haveIssueOfCategory("gc")
   }
 
-  it should "fail when category is absent" in {
+  it should "fail when category is absent and include report" in {
     val ex = intercept[org.scalatest.exceptions.TestFailedException] {
       resultWith(issue("spill-1", Warning, "spill")) should haveIssueOfCategory("gc")
     }
     ex.getMessage should include("category 'gc'")
+    ex.getMessage should include("spark-lens")
   }
 
   it should "support negation" in {
@@ -87,11 +89,12 @@ class SparkLensMatchersSpec extends AnyFlatSpec with SparkLensMatchers {
     resultWith(issue("cfg-1", Info, "config")) should haveIssueOfSeverity(Info)
   }
 
-  it should "fail when no issue of that severity" in {
+  it should "fail when no issue of that severity and include report" in {
     val ex = intercept[org.scalatest.exceptions.TestFailedException] {
       resultWith(issue("cfg-1", Info, "config")) should haveIssueOfSeverity(Critical)
     }
     ex.getMessage should include("CRITICAL")
+    ex.getMessage should include("spark-lens")
   }
 
   it should "support negation" in {
