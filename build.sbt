@@ -17,9 +17,10 @@ ThisBuild / description := "Zero-config Spark performance analyzer — attach vi
 ThisBuild / licenses    := List("Apache-2.0" -> new URL("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / homepage    := Some(url("https://github.com/nidhal-saadaoui/spark-lens-listener"))
 
-ThisBuild / scalaVersion          := "2.12.20"
-ThisBuild / crossScalaVersions    := Seq("2.12.20", "2.13.15")
+ThisBuild / scalaVersion            := "2.12.20"
+ThisBuild / crossScalaVersions      := Seq("2.12.20", "2.13.15")
 ThisBuild / dynverSonatypeSnapshots := true
+ThisBuild / sonatypeCredentialHost  := "central.sonatype.com"
 
 val sparkVersion = "3.5.0"
 
@@ -56,11 +57,10 @@ val commonSettings = Seq(
     "--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED",
   ),
 
-  publishMavenStyle      := true,
-  publishTo              := sonatypePublishToBundle.value,
-  sonatypeCredentialHost := "central.sonatype.com",
+  publishMavenStyle := true,
+  publishTo         := sonatypePublishToBundle.value,
   usePgpKeyHex("5D4E47CFFB9C4CE1"),
-  pgpPassphrase          := sys.env.get("PGP_PASSPHRASE").map(_.toCharArray),
+  pgpPassphrase     := sys.env.get("PGP_PASSPHRASE").map(_.toCharArray),
 )
 
 // ── core: model, analyzers, reporters — no Spark dependency ──────────────────
