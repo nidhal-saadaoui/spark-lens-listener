@@ -82,48 +82,15 @@ jobs:
         env:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
 
-      # +publishSigned cross-publishes all 3 artifacts (core, listener, testing)
-      # for both Scala versions (6 JARs + sources + javadoc + signatures).
-      # sonatypeUploadBundle uploads to the new Central Portal without touching
-      # the legacy OSSRH staging API (sonatypeBundleRelease calls
-      # stagingRepositoryProfiles which returns 402 on central.sonatype.com).
-      # sonatypeBundleRelease = signs + bundles + uploads via sbt-sonatype's own
-      # HTTP client (which the Central Portal accepts). Uploads as USER_MANAGED.
-      - name: Publish signed artifacts and upload bundle
-        run: sbt "+publishSigned" "sonatypeBundleRelease"
+      # Same single-session sbt invocation that worked before the multi-module refactor.
+      # sonatypeCredentialHost is now in ThisBuild so the root project correctly uses
+      # the Central Portal API path (not the legacy OSSRH staging API).
+      - name: Publish to Maven Central
+        run: sbt +publishSigned sonatypeBundleRelease
         env:
           PGP_PASSPHRASE:    ${{ secrets.PGP_PASSPHRASE }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
-
-      # sonatypeBundleRelease uploads with USER_MANAGED (hardcoded in sbt-sonatype 3.12.x).
-      # Use the Central Portal API to find the PENDING deployment and promote it.
-      - name: Promote deployment to PUBLISHED
-        env:
-          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
-          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
-        run: |
-          TOKEN=$(printf '%s:%s' "$SONATYPE_USERNAME" "$SONATYPE_PASSWORD" | base64 -w 0)
-
-          echo "Fetching pending deployments..."
-          BODY=$(curl -sf \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Accept: application/json" \
-            "https://central.sonatype.com/api/v1/publisher/deployments?namespace=io.github.nidhal-saadaoui&maxResults=5&state=PENDING")
-          echo "Response: $BODY"
-
-          DEPLOYMENT_ID=$(echo "$BODY" | jq -r '.deployments[0].deploymentId // empty')
-          if [ -z "$DEPLOYMENT_ID" ]; then
-            echo "ERROR: no PENDING deployment found"
-            exit 1
-          fi
-
-          echo "Publishing deployment: $DEPLOYMENT_ID"
-          HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-            -H "Authorization: Bearer $TOKEN" \
-            "https://central.sonatype.com/api/v1/publisher/deployment/$DEPLOYMENT_ID")
-          echo "Publish HTTP status: $HTTP"
-          [ "$HTTP" -lt 300 ] || exit 1
 
       # Assembly is only configured on the listener subproject.
       # Build both Scala versions for the GitHub release attachments.
