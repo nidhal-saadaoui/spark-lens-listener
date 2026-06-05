@@ -108,8 +108,11 @@ jobs:
           echo "Bundle size: $(du -sh bundle.zip | cut -f1)"
           cd -
 
+          # Sonatype Central API uses Bearer token auth, not HTTP Basic.
+          # The token is base64(username:password) of the portal user token credentials.
+          TOKEN=$(printf '%s:%s' "$SONATYPE_USERNAME" "$SONATYPE_PASSWORD" | base64 -w 0)
           RESPONSE=$(curl -s -w "\n%{http_code}" \
-            -u "$SONATYPE_USERNAME:$SONATYPE_PASSWORD" \
+            -H "Authorization: Bearer $TOKEN" \
             -F "bundle=@${STAGING}/bundle.zip" \
             "https://central.sonatype.com/api/v1/publisher/upload?name=${{ github.ref_name }}&publishingType=AUTOMATIC")
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
