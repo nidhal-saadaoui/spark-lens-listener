@@ -87,7 +87,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: spark-lens-assembly
-          path: target/scala-2.12/spark-lens_2.12-*-assembly.jar
+          path: listener/target/scala-2.12/spark-lens_2.12-*-assembly.jar
           retention-days: 7
 
   # ── End-to-end integration test: demo job via PySpark ─────────────────────
@@ -128,12 +128,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: spark-lens-assembly
-          path: target/scala-2.12/
+          path: listener/target/scala-2.12/
 
       - name: Run demo job
         run: |
           SPARK_HOME=$(python -c "import pyspark; print(pyspark.__path__[0])")
-          JAR=$(ls target/scala-2.12/spark-lens_2.12-*-assembly.jar | head -1)
+          JAR=$(ls listener/target/scala-2.12/spark-lens_2.12-*-assembly.jar | head -1)
           ${SPARK_HOME}/bin/spark-submit \
             --master "local[2]" \
             --driver-class-path "${JAR}" \
