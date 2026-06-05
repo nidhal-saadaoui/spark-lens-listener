@@ -88,7 +88,7 @@ jobs:
       # the legacy OSSRH staging API (sonatypeBundleRelease calls
       # stagingRepositoryProfiles which returns 402 on central.sonatype.com).
       - name: Publish to Maven Central
-        run: sbt "+publishSigned" "sonatypeUploadBundle"
+        run: sbt "+publishSigned" "sonatypeCentralUpload"
         env:
           PGP_PASSPHRASE:    ${{ secrets.PGP_PASSPHRASE }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
