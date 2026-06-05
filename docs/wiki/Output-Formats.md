@@ -81,7 +81,7 @@ Machine-readable JSON. All issues are included (the quiet-info filter used in te
 **Top-level structure:**
 ```json
 {
-  "spark_lens_version": "1.3.0",
+  "spark_lens_version": "LATEST_VERSION",
   "app_id": "application_1748959200_0001",
   "app_name": "My ETL Job",
   "spark_version": "3.5.0",
@@ -129,15 +129,22 @@ Fields with `null` or zero values are omitted for clean output.
 
 ## html
 
-A self-contained interactive HTML report. No external assets — the SparkLens logo, all CSS, and all content are embedded inline. Can be opened directly in a browser or archived.
+A self-contained interactive HTML dashboard. No external assets or JavaScript — the SparkLens logo, all CSS, all SVG charts, and all content are embedded inline. Can be opened directly in a browser, archived, or attached as a CI artifact.
 
-**Contents:**
-- SparkLens logo header
-- Four summary cards: Health Score, Critical count, Warning count, Info count
-- Color-coded expandable issue cards (open by default)
-- Each card: severity badge, title, impact badge, description, recommendation, config/code fix blocks, metrics table, stage/job pills with callsite tooltips
+**Dashboard visualizations (SVG, self-contained, no JS):**
+- **Metrics summary panel** — health score, critical/warning/info counts, total duration, peak memory, shuffle bytes, GC time
+- **Stage timeline** — Gantt chart with color coding: red = GC > 10% of stage time, orange = disk spill, blue = normal
+- **Memory pressure timeline** — line chart tracking executor peak memory evolution across the job
+- **Shuffle metrics breakdown** — horizontal bars comparing input bytes vs shuffle-written bytes per stage
+- **GC timeline** — bar chart of GC pause duration per stage, color-coded by impact (red > 20%, orange > 10%)
+- **Issue severity timeline** — maps when critical (red) and warning (amber) issues occur across the job's timeline
 
-Useful for sharing reports with team members or attaching to incident tickets.
+**Issue cards:**
+- Color-coded expandable cards per issue (open by default)
+- Severity badge, title, estimated savings badge, description, recommendation
+- Config/code fix blocks, metrics table, stage/job pills with callsite tooltips
+
+Useful for sharing reports with team members, attaching to incident tickets, or archiving in CI.
 
 ---
 

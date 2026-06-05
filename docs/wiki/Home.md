@@ -6,7 +6,7 @@
 
 ## What it does
 
-SparkLens attaches to any Spark application as a `SparkListener`. It observes every event (tasks, stages, jobs, SQL executions) as your job runs, builds a complete application model, and at `onApplicationEnd` runs **28 analyzers** that detect performance anti-patterns and emit prioritized, fix-ready issues.
+SparkLens attaches to any Spark application as a `SparkListener`. It observes every event (tasks, stages, jobs, SQL executions) as your job runs, builds a complete application model, and at `onApplicationEnd` runs **29 analyzers** that detect performance anti-patterns and emit prioritized, fix-ready issues.
 
 Issues are classified by severity (Critical / Warning / Info), grouped by type, ranked by estimated wall-clock savings, and written to your chosen output format (text, JSON, HTML, or structured log lines).
 
@@ -19,7 +19,7 @@ Issues are classified by severity (Critical / Warning / Info), grouped by type, 
 ```bash
 # spark-submit with --packages (downloads from Maven Central)
 spark-submit \
-  --packages io.github.nidhal-saadaoui:spark-lens_2.12:1.3.0 \
+  --packages io.github.nidhal-saadaoui:spark-lens_2.12:LATEST_VERSION \
   --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
   --conf spark.sparklens.output=text \
   --conf spark.sparklens.report.path=/tmp/report.txt \
@@ -27,7 +27,7 @@ spark-submit \
 
 # Or with a pre-built fat JAR
 spark-submit \
-  --driver-class-path spark-lens_2.12-1.3.0-assembly.jar \
+  --driver-class-path spark-lens_2.12-LATEST_VERSION-assembly.jar \
   --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
   --conf spark.sparklens.output=text \
   --conf spark.sparklens.report.path=/tmp/report.txt \
@@ -62,7 +62,7 @@ spark-submit \
 | Page | Contents |
 |---|---|
 | [Configuration Reference](Configuration-Reference) | All 66+ `spark.sparklens.*` properties with defaults |
-| [Analyzer Reference](Analyzer-Reference) | All 28 analyzers — what they detect and how to fix |
+| [Analyzer Reference](Analyzer-Reference) | All 29 analyzers — what they detect and how to fix |
 | [Output Formats](Output-Formats) | text, json, html, log formats; path config; placeholder tokens |
 | [Deployment Guide](Deployment-Guide) | YARN, Kubernetes, Databricks, EMR, local mode |
 | [Interpreting the Report](Interpreting-the-Report) | Health score, priority fixes, savings estimates, root cause linking |
@@ -77,12 +77,38 @@ SparkLensListener  →  SparkAppModelBuilder  →  SparkAppModel
       (events)          (mutable, live)         (immutable snapshot)
                                                        ↓
                                               Analyzers.runAll()
-                                               (28 analyzers)
+                                               (29 analyzers)
                                                        ↓
                                           Reporter (text/json/html/log)
 ```
 
 SQL plan events arrive via `onOtherEvent` because the SQL module classes live outside `spark-core`. The listener captures `SparkPlanInfo` trees from `SparkListenerSQLExecutionStart` and resolves per-partition Exchange metrics at `SparkListenerSQLExecutionEnd`, giving analyzers per-partition byte counts for skew detection.
+
+---
+
+## Performance contract testing
+
+`spark-lens-testing` lets you assert on analysis results inside your existing ScalaTest suite — catching performance regressions before they reach production.
+
+```scala
+// build.sbt
+libraryDependencies += "io.github.nidhal-saadaoui" %% "spark-lens-testing" % "LATEST_VERSION" % Test
+```
+
+```scala
+import com.github.saadaouini.sparklens.testing.SparkLensSpec
+
+class MyJobSpec extends SparkLensSpec {
+  "aggregation job" should "not spill to disk" in {
+    analyse { MyJob.run(spark) } should not(haveIssueOfCategory("spill"))
+  }
+  "job health" should "stay above 75" in {
+    analyse { MyJob.run(spark) }.healthScore should be >= 75
+  }
+}
+```
+
+Requires JVM < 23. See the [spark-lens-testing section of the README](https://github.com/nidhal-saadaoui/spark-lens-listener#performance-contract-testing) for the full matcher reference.
 
 ---
 
@@ -96,6 +122,6 @@ sbt test
 sbt "+test"
 
 # Build fat assembly JAR
-sbt "++2.12.20 assembly"
-# Output: target/scala-2.12/spark-lens_2.12-<version>-assembly.jar
+sbt "++2.12.20 listener/assembly"
+# Output: listener/target/scala-2.12/spark-lens_2.12-<version>-assembly.jar
 ```

@@ -146,6 +146,7 @@
       <a href="#analyzers">Analyzers</a>
       <a href="#configuration">Configuration</a>
       <a href="#ci">CI gate</a>
+      <a href="#testing">Testing</a>
     </div>
     <a class="nav-badge" href="https://github.com/nidhal-saadaoui/spark-lens-listener">GitHub →</a>
   </div>
@@ -158,7 +159,7 @@
     <h1>Deep Spark<br><span>performance analysis</span></h1>
     <p>Attach via <code style="background:rgba(255,255,255,.1);padding:2px 7px;border-radius:4px;font-size:16px">spark.extraListeners</code> — get a ranked report of performance issues with exact config fixes at every job end, on every cluster.</p>
     <div class="hero-cmd"><span class="prompt">$</span> <span class="hl">spark-submit</span> \
-  <span class="flag">--packages</span> <span class="val">io.github.nidhal-saadaoui:spark-lens_2.12:1.5.0</span> \
+  <span class="flag">--packages</span> <span class="val">io.github.nidhal-saadaoui:spark-lens_2.12:LATEST_VERSION</span> \
   <span class="flag">--conf</span> <span class="key">spark.extraListeners</span>=<span class="cls">com.github.saadaouini.sparklens.SparkLensListener</span> \
   <span class="flag">--conf</span> <span class="key">spark.sparklens.output</span>=<span class="val">text</span> \
   <span class="hl">myJob.jar</span></div>
@@ -277,7 +278,7 @@
         <span>report.json</span>
       </div>
       <div class="terminal-body"><span class="t-dim">{</span>
-  <span class="t-conf">"spark_lens_version"</span>: <span class="t-save">"1.5.0"</span>,
+  <span class="t-conf">"spark_lens_version": "LATEST_VERSION"</span>,
   <span class="t-conf">"app_id"</span>:           <span class="t-save">"app-20241105-0042"</span>,
   <span class="t-conf">"app_name"</span>:         <span class="t-save">"daily-revenue-pipeline"</span>,
   <span class="t-conf">"spark_version"</span>:    <span class="t-save">"3.5.0"</span>,
@@ -479,7 +480,7 @@
         <h3 style="font-size:15px;font-weight:700;margin-bottom:10px">Fail on critical</h3>
         <div class="code-block" style="font-size:12px"><span class="cb-comment"># CI fails automatically — exit code non-zero</span>
 spark-submit \
-  <span class="cb-flag">--packages</span> <span class="cb-val">io.github.nidhal-saadaoui:spark-lens_2.12:1.5.0</span> \
+  <span class="cb-flag">--packages</span> <span class="cb-val">io.github.nidhal-saadaoui:spark-lens_2.12:LATEST_VERSION</span> \
   <span class="cb-flag">--conf</span> <span class="cb-val">spark.extraListeners=...SparkLensListener</span> \
   <span class="cb-flag">--conf</span> <span class="cb-val">spark.sparklens.fail.on=critical</span> \
   myJob.jar</div>
@@ -505,6 +506,51 @@ spark-submit \
       <div class="score-card"><div class="sc-val c-warn">−10</div><div class="sc-lbl">per Warning</div><div class="sc-desc">e.g. skew, spill &gt; 100 MB, bad join</div></div>
       <div class="score-card"><div class="sc-val c-info">−2</div><div class="sc-lbl">per Info</div><div class="sc-desc">e.g. config suggestions, small I/O</div></div>
     </div>
+  </div>
+</section>
+
+<!-- ── TESTING FRAMEWORK ─────────────────────────────────────────────────── -->
+<section id="testing" style="background:#f8fafc">
+  <div class="section-inner">
+    <h2>Performance contract testing</h2>
+    <p class="section-sub"><code>spark-lens-testing</code> lets you write ScalaTest specs that assert on analysis results — catching performance regressions in CI before they reach production.</p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:32px">
+      <div>
+        <h3 style="font-size:15px;font-weight:700;margin-bottom:10px">Add to your build</h3>
+        <div class="code-block" style="font-size:12px"><span class="cb-comment">// build.sbt</span>
+libraryDependencies += <span class="cb-val">"io.github.nidhal-saadaoui"</span> %%
+  <span class="cb-val">"spark-lens-testing"</span> %
+  <span class="cb-val">"LATEST_VERSION"</span> % Test</div>
+      </div>
+      <div>
+        <h3 style="font-size:15px;font-weight:700;margin-bottom:10px">Write performance assertions</h3>
+        <div class="code-block" style="font-size:12px"><span class="cb-comment">// Scala 2.12 / 2.13 · ScalaTest FlatSpec</span>
+<span class="cb-val">class</span> MyJobSpec <span class="cb-val">extends</span> SparkLensSpec {
+
+  <span class="cb-val">"aggregation"</span> should <span class="cb-val">"not spill"</span> in {
+    analyse { MyJob.run(spark) } should
+      not(haveIssueOfCategory(<span class="cb-val">"spill"</span>))
+  }
+
+  <span class="cb-val">"health"</span> should <span class="cb-val">"stay above 75"</span> in {
+    analyse { MyJob.run(spark) }
+      .healthScore should be >= 75
+  }
+}</div>
+      </div>
+    </div>
+
+    <h3 style="font-size:15px;font-weight:700;margin-bottom:12px">Available matchers</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">
+      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveIssue(id)</code></div><p style="font-size:13px;color:#64748b">Issue with that id (or id prefix) is present</p></div>
+      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveIssueOfCategory(cat)</code></div><p style="font-size:13px;color:#64748b">Any issue in that category (spill, skew, join…)</p></div>
+      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveIssueOfSeverity(sev)</code></div><p style="font-size:13px;color:#64748b">Any issue at Critical / Warning / Info</p></div>
+      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveNoIssuesOfSeverity(sev)</code></div><p style="font-size:13px;color:#64748b">Assert no Critical (or Warning / Info) issues</p></div>
+      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveHealthScoreAbove(n)</code></div><p style="font-size:13px;color:#64748b">Health score > n (e.g. > 75)</p></div>
+      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveHealthScoreBelow(n)</code></div><p style="font-size:13px;color:#64748b">Health score < n — useful to assert a bad job is detected</p></div>
+    </div>
+    <p style="margin-top:16px;font-size:13px;color:#64748b">Both <code>SparkLensSpec</code> (FlatSpec) and <code>SparkLensSuite</code> (FunSuite) are available. Requires JVM &lt; 23 (Spark 3.5 / Hadoop 3.3.4 constraint).</p>
   </div>
 </section>
 

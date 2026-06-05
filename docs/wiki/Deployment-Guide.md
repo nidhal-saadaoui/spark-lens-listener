@@ -12,7 +12,7 @@ The driver runs on the submitting machine. The report is written to whatever pat
 spark-submit \
   --master yarn \
   --deploy-mode client \
-  --packages io.github.nidhal-saadaoui:spark-lens_2.12:1.3.0 \
+  --packages io.github.nidhal-saadaoui:spark-lens_2.12:LATEST_VERSION \
   --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
   --conf spark.sparklens.output=text,json \
   --conf spark.sparklens.report.path=/tmp/spark-lens/{app_id} \
@@ -34,7 +34,7 @@ The driver runs inside a YARN ApplicationMaster container. Use HDFS or S3 for th
 spark-submit \
   --master yarn \
   --deploy-mode cluster \
-  --jars s3://my-bucket/jars/spark-lens_2.12-1.3.0-assembly.jar \
+  --jars s3://my-bucket/jars/spark-lens_2.12-LATEST_VERSION-assembly.jar \
   --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
   --conf spark.sparklens.output=text,json \
   --conf spark.sparklens.report.path=hdfs:///reports/{app_id} \
@@ -53,7 +53,7 @@ The driver runs in a pod. Use an object-store path (S3, GCS, ADLS) or a persiste
 spark-submit \
   --master k8s://https://<cluster-endpoint> \
   --deploy-mode cluster \
-  --conf spark.kubernetes.driverEnv.EXTRA_JARS=s3://bucket/jars/spark-lens_2.12-1.3.0-assembly.jar \
+  --conf spark.kubernetes.driverEnv.EXTRA_JARS=s3://bucket/jars/spark-lens_2.12-LATEST_VERSION-assembly.jar \
   --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
   --conf spark.sparklens.output=json \
   --conf spark.sparklens.report.path=s3a://my-bucket/reports/{app_id}.json \
@@ -70,7 +70,7 @@ Or mount the JAR via an init container and reference via `--driver-class-path`.
 
 1. Upload the fat assembly JAR to DBFS:
    ```
-   dbfs cp spark-lens_2.12-1.3.0-assembly.jar dbfs:/FileStore/jars/
+   dbfs cp spark-lens_2.12-LATEST_VERSION-assembly.jar dbfs:/FileStore/jars/
    ```
 
 2. In the Databricks cluster configuration, under **Spark** → **Spark config**, add:
@@ -106,7 +106,7 @@ aws emr add-steps --cluster-id j-XXXX --steps Type=Spark,Name="My Job",\
     --conf,spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener,\
     --conf,spark.sparklens.output=text,\
     --conf,"spark.sparklens.report.path=s3://my-bucket/reports/{app_id}",\
-    --jars,s3://my-bucket/jars/spark-lens_2.12-1.3.0-assembly.jar,\
+    --jars,s3://my-bucket/jars/spark-lens_2.12-LATEST_VERSION-assembly.jar,\
     --class,com.example.MyJob,\
     s3://my-bucket/myJob.jar\
   ]
@@ -128,7 +128,7 @@ For persistent configuration, add to the EMR cluster Spark configuration:
 
 Place the JAR in S3 and reference it via `--jars`:
 ```
---jars s3://my-bucket/jars/spark-lens_2.12-1.3.0-assembly.jar
+--jars s3://my-bucket/jars/spark-lens_2.12-LATEST_VERSION-assembly.jar
 ```
 Write the report to S3 — EMR Serverless containers have no persistent local filesystem.
 
@@ -141,7 +141,7 @@ For testing and development. The report writes to the local filesystem.
 ```bash
 spark-submit \
   --master "local[*]" \
-  --driver-class-path spark-lens_2.12-1.3.0-assembly.jar \
+  --driver-class-path spark-lens_2.12-LATEST_VERSION-assembly.jar \
   --conf spark.extraListeners=com.github.saadaouini.sparklens.SparkLensListener \
   --conf spark.sparklens.output=text \
   --conf spark.sparklens.report.path=/tmp/report.txt \
