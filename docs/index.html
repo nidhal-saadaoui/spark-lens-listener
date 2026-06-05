@@ -542,15 +542,39 @@ libraryDependencies += <span class="cb-val">"io.github.nidhal-saadaoui"</span> %
     </div>
 
     <h3 style="font-size:15px;font-weight:700;margin-bottom:12px">Available matchers</h3>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">
-      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveIssue(id)</code></div><p style="font-size:13px;color:#64748b">Issue with that id (or id prefix) is present</p></div>
-      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveIssueOfCategory(cat)</code></div><p style="font-size:13px;color:#64748b">Any issue in that category (spill, skew, join…)</p></div>
-      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveIssueOfSeverity(sev)</code></div><p style="font-size:13px;color:#64748b">Any issue at Critical / Warning / Info</p></div>
-      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveNoIssuesOfSeverity(sev)</code></div><p style="font-size:13px;color:#64748b">Assert no Critical (or Warning / Info) issues</p></div>
-      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveHealthScoreAbove(n)</code></div><p style="font-size:13px;color:#64748b">Health score > n (e.g. > 75)</p></div>
-      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveHealthScoreBelow(n)</code></div><p style="font-size:13px;color:#64748b">Health score < n — useful to assert a bad job is detected</p></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;margin-bottom:28px">
+      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveIssue(id)</code></div><p style="font-size:13px;color:#64748b">Issue with that exact id or id prefix is present. e.g. <code>"plan-cartesian"</code> matches <code>"plan-cartesian-3"</code></p></div>
+      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveIssueOfCategory(cat)</code></div><p style="font-size:13px;color:#64748b">Any issue in that category: <code>spill</code>, <code>skew</code>, <code>join</code>, <code>gc</code>, <code>config</code>, <code>plan</code>, <code>io</code>, <code>reliability</code></p></div>
+      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveIssueOfSeverity(sev)</code></div><p style="font-size:13px;color:#64748b">Any issue at <code>Critical</code>, <code>Warning</code>, or <code>Info</code></p></div>
+      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveNoIssuesOfSeverity(sev)</code></div><p style="font-size:13px;color:#64748b">No issue at that severity — assert a job is clean</p></div>
+      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveHealthScoreAbove(n)</code></div><p style="font-size:13px;color:#64748b">Health score &gt; n. e.g. <code>haveHealthScoreAbove(75)</code></p></div>
+      <div class="analyzer-card"><div class="ac-header"><code class="ac-name">haveHealthScoreBelow(n)</code></div><p style="font-size:13px;color:#64748b">Health score &lt; n — verify a bad job <em>is</em> detected</p></div>
     </div>
-    <p style="margin-top:16px;font-size:13px;color:#64748b">Both <code>SparkLensSpec</code> (FlatSpec) and <code>SparkLensSuite</code> (FunSuite) are available. Requires JVM &lt; 23 (Spark 3.5 / Hadoop 3.3.4 constraint).</p>
+
+    <h3 style="font-size:15px;font-weight:700;margin-bottom:10px">Failure messages include the full report</h3>
+    <p style="font-size:13px;color:#64748b;margin-bottom:12px">When any assertion fails, the complete text report is embedded in the test failure — no guessing which issue fired or what the fix is.</p>
+    <div class="terminal-wrap" style="margin-bottom:20px">
+      <div class="terminal-bar">
+        <div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div>
+        <span>sbt test — assertion failure output</span>
+      </div>
+      <div class="terminal-body" style="font-size:12px">MyJobSpec &gt; aggregation job should not spill to disk <span class="t-crit">*** FAILED ***</span>
+Did not expect any issue of category 'spill' but one was present.
+
+<span class="t-eq">======================================================================</span>
+  spark-lens  |  <span class="t-app">MyJobSpec</span>  (local-xxx)
+  Spark 3.5.0   |  Health: <span class="t-score">70/100</span>  |  1 critical
+<span class="t-eq">======================================================================</span>
+
+  [<span class="t-crit">✖ CRITICAL</span>]  Disk Spill in Stage 3 — 2.1 GB spilled
+    fix:   <span class="t-conf">spark.executor.memory=8g</span>
+        Stage 3 spilled 2.1 GB to disk. Disk I/O is 10–100× slower.
+    stages: 3
+<span class="t-eq">======================================================================</span></div>
+    </div>
+
+    <p style="font-size:13px;color:#64748b">You can also print the report manually during debugging: <code>result.textReport</code>.</p>
+    <p style="margin-top:12px;font-size:13px;color:#64748b">Both <code>SparkLensSpec</code> (FlatSpec) and <code>SparkLensSuite</code> (FunSuite) are available. Requires JVM &lt; 23 — <code>build.sbt</code> auto-detects Java 17 when the host JVM is newer. Set <code>JAVA_17_HOME</code> if needed.</p>
   </div>
 </section>
 

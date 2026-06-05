@@ -66,6 +66,7 @@ spark-submit \
 | [Output Formats](Output-Formats) | text, json, html, log formats; path config; placeholder tokens |
 | [Deployment Guide](Deployment-Guide) | YARN, Kubernetes, Databricks, EMR, local mode |
 | [Interpreting the Report](Interpreting-the-Report) | Health score, priority fixes, savings estimates, root cause linking |
+| [Testing Framework](Testing-Framework) | spark-lens-testing: matchers, failure messages, config isolation, JVM setup |
 | [Troubleshooting](Troubleshooting) | Common issues and how to diagnose them |
 
 ---
@@ -97,18 +98,39 @@ libraryDependencies += "io.github.nidhal-saadaoui" %% "spark-lens-testing" % "LA
 
 ```scala
 import com.github.saadaouini.sparklens.testing.SparkLensSpec
+import org.scalatest.BeforeAndAfterEach
 
-class MyJobSpec extends SparkLensSpec {
+class MyJobSpec extends SparkLensSpec with BeforeAndAfterEach {
+
+  // Reset Spark config changes made inside analyse blocks between tests
+  override def afterEach(): Unit = {
+    spark.conf.set("spark.sql.autoBroadcastJoinThreshold", "10485760")
+    super.afterEach()
+  }
+
   "aggregation job" should "not spill to disk" in {
     analyse { MyJob.run(spark) } should not(haveIssueOfCategory("spill"))
   }
+
   "job health" should "stay above 75" in {
-    analyse { MyJob.run(spark) }.healthScore should be >= 75
+    analyse { MyJob.run(spark) } should haveHealthScoreAbove(75)
+  }
+
+  "no critical issues" should "be present" in {
+    analyse { MyJob.run(spark) } should haveNoIssuesOfSeverity(Critical)
   }
 }
 ```
 
-Requires JVM < 23. See the [spark-lens-testing section of the README](https://github.com/nidhal-saadaoui/spark-lens-listener#performance-contract-testing) for the full matcher reference.
+**Matchers:** `haveIssue(id)`, `haveIssueOfCategory(cat)`, `haveIssueOfSeverity(sev)`, `haveNoIssuesOfSeverity(sev)`, `haveHealthScoreAbove(n)`, `haveHealthScoreBelow(n)`. All support `should not(...)`.
+
+**Failure messages** include the full text report — when an assertion fails you see every issue, its description, recommendation, and config fix inline in the test output. Access it manually with `result.textReport`.
+
+**FunSuite style:** use `SparkLensSuite` instead of `SparkLensSpec`.
+
+**JVM requirement:** Requires JVM < 23. `build.sbt` auto-detects a Java 17 installation when the host JVM is newer; set `JAVA_17_HOME` if it is not in a standard path.
+
+See the [README](https://github.com/nidhal-saadaoui/spark-lens-listener#performance-contract-testing) for the full matcher reference and failure message example.
 
 ---
 

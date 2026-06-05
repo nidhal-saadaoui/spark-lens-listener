@@ -137,7 +137,7 @@ All settings are optional and prefixed with `spark.sparklens.*`:
 
 ## Performance contract testing
 
-`spark-lens-testing` lets you write ScalaTest specs that assert on the analysis results of your Spark code — catching regressions before they hit production.
+`spark-lens-testing` lets you write ScalaTest specs that assert on the analysis results of your Spark code — catching performance regressions before they reach production.
 
 ```scala
 // build.sbt
@@ -146,11 +146,19 @@ libraryDependencies += "io.github.nidhal-saadaoui" %% "spark-lens-testing" % "LA
 
 ```scala
 import com.github.saadaouini.sparklens.testing.SparkLensSpec
+import org.scalatest.BeforeAndAfterEach
 
-class MyJobSpec extends SparkLensSpec {
+class MyJobSpec extends SparkLensSpec with BeforeAndAfterEach {
 
-  "cartesian join" should "be flagged by spark-lens" in {
+  // Reset any Spark config changes made inside analyse blocks between tests
+  override def afterEach(): Unit = {
+    spark.conf.set("spark.sql.autoBroadcastJoinThreshold", "10485760")
+    super.afterEach()
+  }
+
+  "cartesian join" should "be flagged" in {
     analyse {
+      spark.conf.set("spark.sql.autoBroadcastJoinThreshold", "-1")
       spark.range(1000).crossJoin(spark.range(100)).count()
     } should haveIssue("plan-cartesian")
   }
@@ -164,18 +172,62 @@ class MyJobSpec extends SparkLensSpec {
   "job health" should "stay above 75" in {
     analyse {
       MyJob.run(spark)
-    }.healthScore should be >= 75
+    } should haveHealthScoreAbove(75)
   }
 }
 ```
 
-The `analyse {}` block runs the Spark code with a local session, captures all events, and returns a `SparkLensResult` with the full issue list and health score. No Spark cluster needed — runs in `sbt test`.
+### How it works
 
-Available matchers: `haveIssue(id)`, `haveIssueOfCategory(cat)`, `haveIssueOfSeverity(sev)`, `haveHealthScoreAbove(n)`, `haveHealthScoreBelow(n)`, `haveNoIssuesOfSeverity(sev)`.
+The `analyse {}` block attaches a scoped listener to a shared local `SparkSession`, captures all events, runs all 29 analyzers, and returns a `SparkLensResult`. No Spark cluster needed — runs entirely inside `sbt test`.
 
-Use `SparkLensSuite` instead of `SparkLensSpec` for FunSuite-style tests.
+### Matchers
 
-> **Note:** Requires JVM < 23. Spark 3.5 / Hadoop 3.3.4 use `Subject.getSubject()` removed in Java 23. Tests on Java 23+ are automatically cancelled (not failed).
+| Matcher | Passes when |
+|---|---|
+| `haveIssue(id)` | An issue with that exact id or id prefix is present |
+| `haveIssueOfCategory(cat)` | Any issue in that category (`spill`, `skew`, `join`, `gc`, `config`, …) |
+| `haveIssueOfSeverity(sev)` | Any issue at `Critical`, `Warning`, or `Info` |
+| `haveNoIssuesOfSeverity(sev)` | No issue at that severity |
+| `haveHealthScoreAbove(n)` | Health score > n |
+| `haveHealthScoreBelow(n)` | Health score < n |
+
+All matchers support negation with `should not(...)`.
+
+### Failure messages
+
+When an assertion fails, the **full text report** is embedded in the test failure so you see exactly which issues fired and what the recommended fixes are:
+
+```
+Did not expect any issue of category 'spill' but one was present.
+
+======================================================================
+  spark-lens  |  MyJobSpec  (local-xxx)
+  Spark 3.5.0   |  Health: 70/100  |  1 critical
+======================================================================
+
+[✖ CRITICAL]  Disk Spill in Stage 3 — 2.1 GB spilled
+  fix:   spark.executor.memory=8g
+       Stage 3 spilled 2.1 GB to disk. Disk I/O is 10–100× slower than memory.
+  stages: 3
+======================================================================
+```
+
+You can also print the report manually for debugging: `result.textReport`.
+
+### FunSuite style
+
+Use `SparkLensSuite` instead of `SparkLensSpec` for FunSuite-style tests:
+
+```scala
+class MyJobSuite extends SparkLensSuite {
+  test("no spill") {
+    analyse { MyJob.run(spark) } should not(haveIssueOfCategory("spill"))
+  }
+}
+```
+
+> **Note:** Requires JVM < 23. Spark 3.5 / Hadoop 3.3.4 use `Subject.getSubject()` removed in Java 23. On JVM ≥ 23, `build.sbt` auto-detects a Java 17 installation for the test JVM — set `JAVA_17_HOME` if it is not in a standard location.
 
 ## CI quality gate
 
