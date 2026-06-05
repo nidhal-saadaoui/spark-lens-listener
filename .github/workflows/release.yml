@@ -82,11 +82,14 @@ jobs:
         env:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
 
-      # Same single-session sbt invocation that worked before the multi-module refactor.
-      # sonatypeCredentialHost is now in ThisBuild so the root project correctly uses
-      # the Central Portal API path (not the legacy OSSRH staging API).
+      # Publish each subproject explicitly to avoid root project being bundled.
+      # Root has publish/skip but sbt aggregation still stages its POM, causing validation failures.
       - name: Publish to Maven Central
-        run: sbt +publishSigned sonatypeBundleRelease
+        run: |
+          sbt "core/+publishSigned"
+          sbt "listener/+publishSigned"
+          sbt "testing/+publishSigned"
+          sbt "sonatypeBundleRelease"
         env:
           PGP_PASSPHRASE:    ${{ secrets.PGP_PASSPHRASE }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
