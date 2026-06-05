@@ -82,17 +82,20 @@ jobs:
         env:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
 
-      # +publishSigned cross-publishes for all versions in crossScalaVersions,
-      # then sonatypeBundleRelease uploads and releases the bundle in one shot.
+      # +publishSigned cross-publishes all 3 artifacts (core, listener, testing)
+      # for both Scala versions (6 JARs + sources + javadoc + signatures).
+      # sonatypeBundleRelease then uploads the bundle and promotes it in one shot.
       - name: Publish to Maven Central
-        run: sbt +publishSigned sonatypeBundleRelease
+        run: sbt "+publishSigned" "sonatypeBundleRelease"
         env:
           PGP_PASSPHRASE:    ${{ secrets.PGP_PASSPHRASE }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
 
-      - name: Build assembly JARs (both Scala versions)
-        run: sbt +assembly
+      # Assembly is only configured on the listener subproject.
+      # Build both Scala versions for the GitHub release attachments.
+      - name: Build assembly JARs
+        run: sbt "+listener/assembly"
 
       - name: Create GitHub Release
         env:
@@ -101,5 +104,5 @@ jobs:
           gh release create "${{ github.ref_name }}" \
             --title "spark-lens ${{ github.ref_name }}" \
             --generate-notes \
-            target/scala-2.13/spark-lens_2.13-*-assembly.jar \
-            target/scala-2.12/spark-lens_2.12-*-assembly.jar
+            listener/target/scala-2.12/spark-lens_2.12-*-assembly.jar \
+            listener/target/scala-2.13/spark-lens_2.13-*-assembly.jar
