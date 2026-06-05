@@ -87,25 +87,35 @@ jobs:
       # sonatypeUploadBundle uploads to the new Central Portal without touching
       # the legacy OSSRH staging API (sonatypeBundleRelease calls
       # stagingRepositoryProfiles which returns 402 on central.sonatype.com).
+      # +publishSigned writes signed JARs/POMs/sources/javadoc into
+      # target/sonatype-staging/ (Maven layout). It does NOT create bundle.zip.
       - name: Publish signed artifacts
         run: sbt "+publishSigned"
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
 
-      # sonatypeCentralUpload (sbt-sonatype 3.12.x) hardcodes publishingType=USER_MANAGED.
-      # We upload the bundle directly via the Sonatype Central API with AUTOMATIC publishing
-      # so no manual portal action is required.
-      - name: Upload bundle to Sonatype Central (auto-publish)
+      # Zip the staged artifacts ourselves, then upload with publishingType=AUTOMATIC
+      # so Sonatype Central promotes immediately without manual portal action.
+      # sbt-sonatype 3.12.x hardcodes USER_MANAGED so we bypass it entirely.
+      - name: Bundle and upload to Sonatype Central (auto-publish)
         run: |
-          BUNDLE=$(find target/sonatype-staging -name "bundle.zip" | head -1)
-          echo "Uploading bundle: $BUNDLE"
+          STAGING="target/sonatype-staging"
+          echo "Staging directory contents:"
+          ls -la "$STAGING" || { echo "ERROR: staging dir missing — publishSigned may have failed"; exit 1; }
+
+          cd "$STAGING"
+          zip -r bundle.zip .
+          echo "Bundle size: $(du -sh bundle.zip | cut -f1)"
+          cd -
+
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             -u "$SONATYPE_USERNAME:$SONATYPE_PASSWORD" \
-            -F "bundle=@${BUNDLE}" \
+            -F "bundle=@${STAGING}/bundle.zip" \
             "https://central.sonatype.com/api/v1/publisher/upload?name=${{ github.ref_name }}&publishingType=AUTOMATIC")
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | head -1)
-          echo "Response: $BODY  (HTTP $HTTP_CODE)"
+          echo "Deployment ID : $BODY"
+          echo "HTTP status   : $HTTP_CODE"
           [ "$HTTP_CODE" -lt 300 ] || exit 1
         env:
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
