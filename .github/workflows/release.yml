@@ -84,9 +84,11 @@ jobs:
 
       # +publishSigned cross-publishes all 3 artifacts (core, listener, testing)
       # for both Scala versions (6 JARs + sources + javadoc + signatures).
-      # sonatypeBundleRelease then uploads the bundle and promotes it in one shot.
+      # sonatypeUploadBundle uploads to the new Central Portal without touching
+      # the legacy OSSRH staging API (sonatypeBundleRelease calls
+      # stagingRepositoryProfiles which returns 402 on central.sonatype.com).
       - name: Publish to Maven Central
-        run: sbt "+publishSigned" "sonatypeBundleRelease"
+        run: sbt "+publishSigned" "sonatypeUploadBundle"
         env:
           PGP_PASSPHRASE:    ${{ secrets.PGP_PASSPHRASE }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
