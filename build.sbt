@@ -136,6 +136,7 @@ lazy val root = (project in file("."))
   .settings(
     publish / skip        := true,
     publishLocal / skip   := true,
+    publishSigned / skip  := true,
     // Prevent sbt from looking for sources in the root src/ during aggregate builds
     Compile / unmanagedSourceDirectories := Nil,
     Test    / unmanagedSourceDirectories := Nil,
