@@ -82,13 +82,13 @@ jobs:
         env:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
 
-      # Upload signed artifacts to Sonatype Central (USER_MANAGED).
-      # You will manually promote in the portal: central.sonatype.com → Deployments → Publish
-      - name: Upload to Maven Central (manual promotion required)
-        run: |
-          sbt "+publishSigned"
-          rm -rf target/sonatype-staging/*/io/github/nidhal-saadaoui/root-*
-          sbt "sonatypeBundleRelease"
+      # +publishSigned cross-publishes all 3 artifacts (core, listener, testing)
+      # for both Scala versions (6 JARs + sources + javadoc + signatures).
+      # sonatypeUploadBundle uploads to the new Central Portal without touching
+      # the legacy OSSRH staging API (sonatypeBundleRelease calls
+      # stagingRepositoryProfiles which returns 402 on central.sonatype.com).
+      - name: Publish to Maven Central
+        run: sbt "+publishSigned" "sonatypeCentralUpload"
         env:
           PGP_PASSPHRASE:    ${{ secrets.PGP_PASSPHRASE }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
