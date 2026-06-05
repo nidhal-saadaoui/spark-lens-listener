@@ -87,10 +87,27 @@ jobs:
       # sonatypeUploadBundle uploads to the new Central Portal without touching
       # the legacy OSSRH staging API (sonatypeBundleRelease calls
       # stagingRepositoryProfiles which returns 402 on central.sonatype.com).
-      - name: Publish to Maven Central
-        run: sbt "+publishSigned" "sonatypeCentralUpload"
+      - name: Publish signed artifacts
+        run: sbt "+publishSigned"
         env:
-          PGP_PASSPHRASE:    ${{ secrets.PGP_PASSPHRASE }}
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+
+      # sonatypeCentralUpload (sbt-sonatype 3.12.x) hardcodes publishingType=USER_MANAGED.
+      # We upload the bundle directly via the Sonatype Central API with AUTOMATIC publishing
+      # so no manual portal action is required.
+      - name: Upload bundle to Sonatype Central (auto-publish)
+        run: |
+          BUNDLE=$(find target/sonatype-staging -name "bundle.zip" | head -1)
+          echo "Uploading bundle: $BUNDLE"
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -u "$SONATYPE_USERNAME:$SONATYPE_PASSWORD" \
+            -F "bundle=@${BUNDLE}" \
+            "https://central.sonatype.com/api/v1/publisher/upload?name=${{ github.ref_name }}&publishingType=AUTOMATIC")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+          echo "Response: $BODY  (HTTP $HTTP_CODE)"
+          [ "$HTTP_CODE" -lt 300 ] || exit 1
+        env:
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
 
