@@ -5,6 +5,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.1] — 2026-06-05
+
+### Internal
+- Release pipeline: bypass sbt-sonatype `USER_MANAGED` limitation by uploading the bundle
+  directly via the Sonatype Central API with `publishingType=AUTOMATIC`
+
+---
+
 ## [1.6.0] — 2026-06-05
 
 ### Multi-module build + spark-lens-testing artifact
