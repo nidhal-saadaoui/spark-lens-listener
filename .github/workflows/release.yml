@@ -85,7 +85,10 @@ jobs:
       # Upload signed artifacts to Sonatype Central (USER_MANAGED).
       # You will manually promote in the portal: central.sonatype.com → Deployments → Publish
       - name: Upload to Maven Central (manual promotion required)
-        run: sbt "+publishSigned" "sonatypeBundleRelease"
+        run: |
+          sbt "+publishSigned"
+          rm -rf target/sonatype-staging/*/io/github/nidhal-saadaoui/root-*
+          sbt "sonatypeBundleRelease"
         env:
           PGP_PASSPHRASE:    ${{ secrets.PGP_PASSPHRASE }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
