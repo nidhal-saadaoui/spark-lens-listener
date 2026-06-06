@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://nidhal-saadaoui.github.io/spark-lens-listener/sitemap.xml

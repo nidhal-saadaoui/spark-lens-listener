@@ -15,7 +15,7 @@ ThisBuild / developers := List(Developer(
 ))
 ThisBuild / description := "Zero-config Spark performance analyzer — attach via spark.extraListeners, get actionable recommendations in your logs."
 ThisBuild / licenses    := List("Apache-2.0" -> new URL("https://www.apache.org/licenses/LICENSE-2.0.txt"))
-ThisBuild / homepage    := Some(url("https://github.com/nidhal-saadaoui/spark-lens-listener"))
+ThisBuild / homepage    := Some(url("https://nidhal-saadaoui.github.io/spark-lens-listener/"))
 
 ThisBuild / scalaVersion            := "2.12.20"
 ThisBuild / crossScalaVersions      := Seq("2.12.20", "2.13.15")
