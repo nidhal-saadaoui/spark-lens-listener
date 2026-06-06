@@ -7,6 +7,7 @@ object SparkLensAnalyser {
 
   def run(block: => Unit)(implicit spark: SparkSession): SparkLensResult = {
     val builder  = new SparkAppModelBuilder(spark.version)
+    builder.seedStartTime(spark.sparkContext.startTime)
     val listener = new SparkLensTestListener(builder)
     spark.sparkContext.addSparkListener(listener)
     try {

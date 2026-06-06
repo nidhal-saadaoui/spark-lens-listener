@@ -87,6 +87,10 @@ private[sparklens] class SparkAppModelBuilder(runtimeVersion: String = "") {
     startTimeMs = e.time
   }
 
+  /** Seed the start time when the listener is attached after application start (e.g. in tests). */
+  private[sparklens] def seedStartTime(ms: Long): Unit =
+    if (startTimeMs == 0L) startTimeMs = ms
+
   def onEnvironmentUpdate(e: SparkListenerEnvironmentUpdate): Unit = {
     e.environmentDetails.get("Spark Properties").foreach {
       _.foreach { case (k, v) => sparkProperties(k) = v }
