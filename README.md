@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-orange)](https://nidhal-saadaoui.github.io/spark-lens-listener/)
 
-Drop-in Spark performance analyzer. Attach via `spark.extraListeners` — get actionable recommendations in your logs at the end of every job. No Python, no extra services, no code changes.
+Drop-in Spark performance analyzer. Attach via `spark.extraListeners` — get actionable recommendations at the end of every job. No Python, no extra services, no code changes.
 
 ## Usage
 

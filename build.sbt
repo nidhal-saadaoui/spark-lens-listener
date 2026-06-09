@@ -13,7 +13,7 @@ ThisBuild / developers := List(Developer(
   email = "nidhal.saadaoui.1993@gmail.com",
   url   = url("https://github.com/nidhal-saadaoui"),
 ))
-ThisBuild / description := "Drop-in Spark performance analyzer — attach via spark.extraListeners, get actionable recommendations in your logs."
+ThisBuild / description := "Drop-in Spark performance analyzer — attach via spark.extraListeners, get actionable recommendations."
 ThisBuild / licenses    := List("Apache-2.0" -> new URL("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / homepage    := Some(url("https://nidhal-saadaoui.github.io/spark-lens-listener/"))
 
