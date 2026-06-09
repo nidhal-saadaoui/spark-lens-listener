@@ -5,6 +5,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.3] — 2026-06-09
+
+### Bug fix
+
+- **`output=text` without a report path now works** — setting `spark.sparklens.output=text` without
+  `spark.sparklens.report.path` threw `IllegalArgumentException` at application start in 1.6.2,
+  crashing the listener. The `text` format now falls back to stdout when no path is given,
+  consistent with the documented behaviour and the `log` format. `json` and `html` still require
+  an explicit path.
+
+---
+
 ## [1.6.1] — 2026-06-05
 
 ### Internal
