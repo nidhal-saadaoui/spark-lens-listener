@@ -33,8 +33,8 @@ import org.slf4j.LoggerFactory
  *                       A format-specific path takes priority:
  *                         spark.sparklens.report.path.json=hdfs://bucket/report.json
  *                         spark.sparklens.report.path.text=/tmp/report.txt
- *                       Required for text, json, and html. Optional for log: without a
- *                       path the log format routes through SLF4J so all configured
+ *                       Required for json and html. Optional for text and log: text
+ *                       falls back to stdout, log routes through SLF4J so all configured
  *                       appenders (console, Splunk, Datadog, etc.) receive the output.
  *
  *   fail.on           — critical | warning | info | none
@@ -116,7 +116,7 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
     val failInfo = failOn.map(f => s", fail.on=$f").getOrElse("")
     val fmt = if (activeFormats.nonEmpty) activeFormats else "off"
     log.info(s"spark-lens attached (output=$fmt$pathInfo$failInfo)")
-    (outputFormats - "off" - "log").foreach { fmt =>
+    (outputFormats - "off" - "log" - "text").foreach { fmt =>
       if (pathFor(fmt).isEmpty)
         throw new IllegalArgumentException(
           s"spark-lens: output=$fmt requires a report path. " +
