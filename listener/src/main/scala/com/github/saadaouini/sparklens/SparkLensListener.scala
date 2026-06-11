@@ -56,6 +56,23 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
 
   private val builder = new SparkAppModelBuilder(SPARK_VERSION)
 
+  // Formats that are actually active after validation. json/html without a path are disabled
+  // with a warning rather than throwing — throwing from onApplicationStart propagates into
+  // SparkContext init (that event is posted synchronously before the async bus starts), which
+  // stops the context before the backend is ready and causes
+  // "SparkContext stopped while waiting for backend".
+  private val activeFormats: Set[String] = {
+    val requested = outputFormats - "off"
+    val noPath    = (requested - "log" - "text").filter(fmt => pathFor(fmt).isEmpty)
+    noPath.foreach { fmt =>
+      log.warn(
+        s"spark-lens: output=$fmt requires a report path — format disabled. " +
+        s"Set spark.sparklens.report.path or spark.sparklens.report.path.$fmt."
+      )
+    }
+    requested -- noPath
+  }
+
   // ── Path resolution ────────────────────────────────────────────────────────
   // Priority: spark.sparklens.report.path.<format>
   //         → spark.sparklens.report.path + .<ext>  (when multiple formats active)
@@ -111,18 +128,10 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
 
   override def onApplicationStart(e: SparkListenerApplicationStart): Unit = {
     builder.onApplicationStart(e)
-    val activeFormats = (outputFormats - "off").mkString(",")
     val pathInfo = basePath.map(p => s", path=$p").getOrElse("")
     val failInfo = failOn.map(f => s", fail.on=$f").getOrElse("")
-    val fmt = if (activeFormats.nonEmpty) activeFormats else "off"
+    val fmt = if (activeFormats.nonEmpty) activeFormats.mkString(",") else "off"
     log.info(s"spark-lens attached (output=$fmt$pathInfo$failInfo)")
-    (outputFormats - "off" - "log" - "text").foreach { fmt =>
-      if (pathFor(fmt).isEmpty)
-        throw new IllegalArgumentException(
-          s"spark-lens: output=$fmt requires a report path. " +
-          s"Set spark.sparklens.report.path or spark.sparklens.report.path.$fmt."
-        )
-    }
   }
 
   override def onEnvironmentUpdate(e: SparkListenerEnvironmentUpdate): Unit =
@@ -168,7 +177,6 @@ class SparkLensListener(conf: SparkConf) extends SparkListener {
   // ── Application end: run analysis and emit all requested formats ──────────
 
   override def onApplicationEnd(e: SparkListenerApplicationEnd): Unit = {
-    val activeFormats = outputFormats - "off"
     if (activeFormats.isEmpty && failOn.isEmpty) return
 
     val app    = builder.build(e.time)

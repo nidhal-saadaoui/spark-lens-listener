@@ -5,6 +5,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.4] — 2026-06-11
+
+### Bug fix
+
+- **Listener no longer throws from `onApplicationStart`** — misconfigured formats (`json`/`html`
+  without a report path) now log a warning and disable the format instead of throwing.
+  `SparkListenerApplicationStart` is posted synchronously during `SparkContext` initialization;
+  an uncaught exception there caused "SparkContext stopped while waiting for backend" on real
+  clusters (YARN / standalone). The listener is now safe to use in any environment regardless
+  of configuration mistakes.
+
+---
+
 ## [1.6.3] — 2026-06-09
 
 ### Bug fix
