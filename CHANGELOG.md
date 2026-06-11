@@ -5,6 +5,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.6.5] — 2026-06-11
+
+### Bug fix
+
+- **Exclude Scala standard library from assembly JAR** — the assembly was bundling
+  `scala-library` (5.8 MB → 598 KB), causing classloader conflicts when the JAR was
+  distributed to executors via `--jars` or `--packages`. The duplicate Scala classes
+  on the executor JVM produced "error sending result StreamResponse" failures on real
+  clusters (YARN / standalone / K8s). The assembly now contains only spark-lens classes.
+
+---
+
 ## [1.6.4] — 2026-06-11
 
 ### Bug fix

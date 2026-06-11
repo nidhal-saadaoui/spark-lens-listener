@@ -93,7 +93,11 @@ lazy val listener = (project in file("listener"))
     ),
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.18" % Test,
 
-    // Assembly JAR — Spark stays provided so the JAR is small
+    // Assembly JAR — Spark and Scala stay provided so the JAR is lean and
+    // doesn't conflict with the Scala library already on every executor JVM.
+    // Bundling scala-library causes classloader conflicts when --jars or
+    // --packages distributes the assembly to executors.
+    assembly / assemblyOption ~= { _.withIncludeScala(false) },
     assembly / assemblyMergeStrategy := {
       case PathList("META-INF", "services", _*) => MergeStrategy.concat
       case PathList("META-INF", _*)             => MergeStrategy.discard
